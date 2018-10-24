@@ -114,7 +114,11 @@ public class Constants {
 
     public static final String HOSTS = "host";
 
-    public static final String HEADER = "header";
+    public static final String ANN_HEADER = "ann_header";
+    public static final String ANN_VALUE_LIST_PREFIX = "ann_values_";
+    
+    public static final String METADATA_HEADER = "meta_header";
+    public static final String METADATA_VALUE_LIST = "meta_values";
 
     public static final String ACCESS = "access";
 
