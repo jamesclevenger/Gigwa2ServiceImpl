@@ -2746,7 +2746,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         // get information from id
         String[] info = GigwaSearchVariantsRequest.getInfoFromId(id, 3);
         if (info == null) {
-
             // wrong number of param or wrong module name 
         } else {
             String module = info[0];
@@ -2754,40 +2753,50 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             String[] headerField;
             String header;
 
-            // get snpEff from variantRunData.ai.ANN
+            // parse annotation fields
             BasicDBObject queryVarAnn = new BasicDBObject();
             BasicDBObject varAnnField = new BasicDBObject();
             queryVarAnn.put(Constants.ID + "." + VariantRunDataId.FIELDNAME_VARIANT_ID, variantId);
             varAnnField.put(Constants.AI, 1);
             DBObject variantRunDataObj = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(VariantRunData.class)).findOne(queryVarAnn, varAnnField);
             DBObject variantAnnotationObj = variantRunDataObj != null ? (DBObject) variantRunDataObj.get(VariantRunData.SECTION_ADDITIONAL_INFO) : null;
-            // if no variantAnnotation matching, return null
             if (variantAnnotationObj != null)
             {
-                String eff = (String) variantAnnotationObj.get(VcfImport.ANNOTATION_FIELDNAME_ANN);
+                String ann = (String) variantAnnotationObj.get(VcfImport.ANNOTATION_FIELDNAME_ANN);
+                boolean fAnnStyle = ann != null;
+                if (!fAnnStyle)
+                	ann = (String) variantAnnotationObj.get(VcfImport.ANNOTATION_FIELDNAME_EFF);
                 Map<String, List<String>> additionalInfo = new HashMap<>();
                 List<TranscriptEffect> transcriptEffectList;
 
-                // only support VCF 4.2 annotation system for ga4gh API 
                 String[] tableTranscriptEffect = new String[0];
-                if (eff != null) {
-                    tableTranscriptEffect = eff.split(",");
-                }
+                if (ann != null)
+                    tableTranscriptEffect = ann.split(",");
 
                 transcriptEffectList = new ArrayList<>();
-                // list for additional info 
-                List<String> annotationImpact = new ArrayList<>();
-                List<String> geneName = new ArrayList<>();
-                List<String> geneID = new ArrayList<>();
-                List<String> featureType = new ArrayList<>();
-                List<String> transcriptBiotype = new ArrayList<>();
-                List<String> rank = new ArrayList<>();
-                List<String> distance = new ArrayList<>();
-                List<String> error = new ArrayList<>();
 
                 // source version is stored in the ontology map 
-                // looks like 2016-06-06 
                 String sourceVersion = getOntologyId(Constants.VERSION) == null ? "" : getOntologyId(Constants.VERSION);
+
+                BasicDBObject fieldHeader = new BasicDBObject();
+                fieldHeader.put(Constants.INFO_META_DATA + "." + (fAnnStyle ? VcfImport.ANNOTATION_FIELDNAME_ANN : VcfImport.ANNOTATION_FIELDNAME_EFF) + "." + Constants.DESCRIPTION, 1);
+                DBObject vcfHeaderEff = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(DBVCFHeader.class)).findOne(new BasicDBObject(), fieldHeader);
+
+                ArrayList<String> headerList = new ArrayList<>();
+                LinkedHashSet<String> usedHeaderSet = new LinkedHashSet<>();
+                if (!fAnnStyle)
+                	headerList.add("Consequence");	// EFF style annotations
+                DBObject annInfo = (DBObject) ((DBObject) vcfHeaderEff.get(Constants.INFO_META_DATA)).get(fAnnStyle ? VcfImport.ANNOTATION_FIELDNAME_ANN : VcfImport.ANNOTATION_FIELDNAME_EFF);
+                if (annInfo != null) {
+                    header = (String) annInfo.get(Constants.DESCRIPTION);
+                    if (header != null) {
+                        // consider using the headers for additionnal info keySet
+                    	String sBeforeFieldList = fAnnStyle ? ": " : " (";
+                        headerField = header.substring(header.indexOf(sBeforeFieldList) + sBeforeFieldList.length(), fAnnStyle ? header.length() : header.indexOf(")")).split("\\|");
+                        for (String head : headerField)
+                            headerList.add(head.replace("[", "").replace("]", "").trim());
+                    }
+                }
 
                 //TODO used to store SIFT result : voir variant 1:928214 dans UMD3_1_86
                 List<AnalysisResult> listAnalysisResults = new ArrayList<>();
@@ -2797,18 +2806,24 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 //                analysisResult.setScore((int)(100 * .001));
 //                listAnalysisResults.add(analysisResult);
 
-                for (int i = 0; i < tableTranscriptEffect.length; i++) {
+                for (int i=0; i<tableTranscriptEffect.length; i++) {
+                	ArrayList<String> values = new ArrayList<>();
+                	
+                    if (!fAnnStyle) {	// EFF style annotations
+                    	int parenthesisPos = tableTranscriptEffect[i].indexOf("(");
+                    	values.add(tableTranscriptEffect[i].substring(0, parenthesisPos));
+                    	tableTranscriptEffect[i] = tableTranscriptEffect[i].substring(parenthesisPos + 1).replace(")", "");
+                    }
 
-                    List<OntologyTerm> listOntology = new ArrayList<>();
+                    List<OntologyTerm> ontologyList = new ArrayList<>();
 
-                    // if a field is empty, don't skip it but return an empty String "" so values.length is always 14                              
-                    String[] values = tableTranscriptEffect[i].split("\\|", -1);
+                    for (String val : tableTranscriptEffect[i].split("\\|", -1))
+                    	values.add(val);
 
-                    // info which doesn't fit should go in additional info map
-                    String[] impact = values[1].split("&");
-
-                    for (String impact1 : impact) {
-                        String ontologyId = getOntologyId(impact1);
+                    String[] impact = values.get(headerList.indexOf(fAnnStyle ? "IMPACT" : "Effefct_Impact")).split("&");
+                    
+                    for (String anImpact : impact) {
+                        String ontologyId = getOntologyId(anImpact);
                         if (ontologyId == null) {
                             ontologyId = "";
                         }
@@ -2816,124 +2831,83 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                                 .setId(ontologyId)
                                 .setSourceName("sequence ontology")
                                 .setSourceVersion(sourceVersion)
-                                .setTerm(impact1)
+                                .setTerm(anImpact)
                                 .build();
-                        listOntology.add(ontologyTerm);
+                        ontologyList.add(ontologyTerm);
                     }
 
-                    annotationImpact.add(values[2]);
-                    geneName.add(values[3]);
-                    geneID.add(values[4]);
-                    featureType.add(values[5]);
-                    transcriptBiotype.add(values[7]);
-                    rank.add(values[8]);
-                    distance.add(values[14]);
-                    error.add(values[15]);
-
-                    HGVSAnnotation hGVSAnnotation = HGVSAnnotation.newBuilder()
-                            .setGenomic(values[9])
-                            .setTranscript("") // transcript biotype? ==> values[7]
-                            .setProtein(values[10])
-                            .build();
-
-                    // referenceSequence and alternate sequence non available ? 
+                    HGVSAnnotation.Builder hgvsBuilder = HGVSAnnotation.newBuilder();
                     AlleleLocation cDnaLocation = null;
-                    if (!values[11].equals("")) {
-                    	String sep = values[11].contains("/") ? "/" : (values[11].contains("-") ? "-" : null);
-                    	if (sep == null)
-                    		LOG.warn("Unable to parse cDnaLocation for variant " + id + ": " + values[11]);
-                    	else
-                    	{
-	                    	String[] splittedVal = values[11].split(sep);
-	                        cDnaLocation = AlleleLocation.newBuilder()
-	                                .setStart(Integer.parseInt(splittedVal[0]))
-	                                .setEnd(Integer.parseInt(splittedVal[splittedVal.length - 1]))
-	                                .build();
-                    	}
-                    }
-
                     AlleleLocation cdsLocation = null;
-                    if (!values[12].equals("")) {
-                    	String sep = values[12].contains("/") ? "/" : (values[12].contains("-") ? "-" : null);
-                    	if (sep == null)
-                    		LOG.warn("Unable to parse cdsLocation for variant " + id + ": " + values[12]);
-                    	else
-                    	{
-	                		String[] splittedVal = values[12].split(sep);
-	                        cdsLocation = AlleleLocation.newBuilder()
-	                                .setStart(Integer.parseInt(splittedVal[0]))
-	                                .setEnd(Integer.parseInt(splittedVal[splittedVal.length - 1]))
-	                                .build();
-                    	}
+                    AlleleLocation proteinLocation = null;
+                    int nC = headerList.indexOf("HGVSc"), nP = headerList.indexOf("HGVSp"), nT = headerList.indexOf("Transcript");
+                    if ((nC != -1 && !values.get(nC).isEmpty()) || (nP != -1 && !values.get(nP).isEmpty()) || (nT != -1 && !values.get(nT).isEmpty()))
+                	{
+                		if (nC != -1)
+                			hgvsBuilder.setGenomic(values.get(nC));
+                		if (nT != -1)
+                			hgvsBuilder.setTranscript(values.get(nT));
+                		if (nP != -1)
+                			hgvsBuilder.setProtein(values.get(nP));
+                	}
+
+                    if (fAnnStyle)
+                    {
+	                    int nPos = headerList.indexOf("cDNA_position");
+	                    if (nPos != -1 && !values.get(nPos).equals(""))
+	                    	cDnaLocation = AlleleLocation.newBuilder().setStart(Integer.parseInt(values.get(nPos))).build();
+	                    
+	                    nPos = headerList.indexOf("CDS_position");
+	                    if (nPos != -1 && !values.get(nPos).equals(""))
+	                        cdsLocation = AlleleLocation.newBuilder().setStart(Integer.parseInt(values.get(nPos))).build();
+
+	                    nPos = headerList.indexOf("Protein_position");
+	                    if (nPos != -1 && !values.get(nPos).equals(""))
+		                    proteinLocation = AlleleLocation.newBuilder().setStart(Integer.parseInt(values.get(nPos))).build();
                     }
 
-                    AlleleLocation proteinLocation = null;
-                    if (!values[13].equals("")) {
-                    	String sep = values[13].contains("/") ? "/" : (values[13].contains("-") ? "-" : null);
-                    	if (sep == null)
-                    		LOG.warn("Unable to parse proteinLocation for variant " + id + ": " + values[13]);
-                    	else
-                    	{
-	                		String[] splittedVal = values[13].split(sep);
-	                        proteinLocation = AlleleLocation.newBuilder()
-	                                .setStart(Integer.parseInt(splittedVal[0]))
-	                                .setEnd(Integer.parseInt(splittedVal[splittedVal.length - 1]))
-	                                .build();
-                    	}
-                    }
                     TranscriptEffect transcriptEffect = TranscriptEffect.newBuilder()
-                            .setAlternateBases(values[0])
+                            .setAlternateBases(values.get(0))
                             .setId(id + ID_SEPARATOR + i)
-                            .setEffects(listOntology)
-                            .setHgvsAnnotation(hGVSAnnotation)
+                            .setEffects(ontologyList)
+                            .setHgvsAnnotation(hgvsBuilder.build())
                             .setCDNALocation(cDnaLocation)
                             .setCDSLocation(cdsLocation)
                             .setProteinLocation(proteinLocation)
-                            .setFeatureId(values[6])
+                            .setFeatureId(values.get(6))
                             .setAnalysisResults(listAnalysisResults)
                             .build();
 
                     transcriptEffectList.add(transcriptEffect);
+                    additionalInfo.put(Constants.ANN_VALUE_LIST_PREFIX + i, values);
+                    for (int j=0; j<values.size(); j++)
+                    	if (!values.get(j).isEmpty())
+                    		usedHeaderSet.add(headerList.get(j));
+                }
+                
+                for (int i=0; i<tableTranscriptEffect.length; i++)
+                {
+                	List<String> keptValues = new ArrayList<String>(), allValues = additionalInfo.get(Constants.ANN_VALUE_LIST_PREFIX + i);
+	                for (int j=0; j<headerList.size(); j++)
+	                	if (usedHeaderSet.contains(headerList.get(j)))
+	                		keptValues.add(allValues.get(j));
+	                additionalInfo.put(Constants.ANN_VALUE_LIST_PREFIX + i, keptValues);
                 }
 
-                if (eff != null) {	// VCF 4.2 with ANN system
-                    additionalInfo.put("annotation_impact", annotationImpact);
-                    additionalInfo.put("gene_name", geneName);
-                    additionalInfo.put("gende_ID", geneID);
-                    additionalInfo.put("feature_type", featureType);
-                    additionalInfo.put("transcript_biotype", transcriptBiotype);
-                    additionalInfo.put("rank", rank);
-                    additionalInfo.put("distance", distance);
-                    additionalInfo.put("error", error);
-                } else {	// older VCF: get annotation info from vcf header 
-                    BasicDBObject fieldHeader = new BasicDBObject();
-                    fieldHeader.put(Constants.INFO_META_DATA + "." + VcfImport.ANNOTATION_FIELDNAME_EFF + "." + Constants.DESCRIPTION, 1);
-                    DBObject vcfHeaderEff = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(DBVCFHeader.class)).findOne(new BasicDBObject(), fieldHeader);
+                ArrayList<String> properlySortedUsedHeaderList = new ArrayList<>();
+                for (String aHeader : headerList)
+                	if (usedHeaderSet.contains(aHeader))
+                		properlySortedUsedHeaderList.add(aHeader);
+                additionalInfo.put(Constants.ANN_HEADER, new ArrayList<String>(properlySortedUsedHeaderList));
 
-                    DBObject annInfo = (DBObject) ((DBObject) vcfHeaderEff.get(Constants.INFO_META_DATA)).get(VcfImport.ANNOTATION_FIELDNAME_EFF);
+                TreeMap<String, String> metadata = new TreeMap<>();
+                for (String key : variantAnnotationObj.keySet())
+                	// do not store EFF_ge / EFF_nm / EFF / ANN
+                    if (!key.equals(VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE) && !key.equals(VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME) && !key.equals(VcfImport.ANNOTATION_FIELDNAME_ANN) && !key.equals(VcfImport.ANNOTATION_FIELDNAME_EFF) && !key.equals(""))
+                        metadata.put(key, variantAnnotationObj.get(key).toString());
+                additionalInfo.put(Constants.METADATA_HEADER, new ArrayList<String>(metadata.keySet()));
+                additionalInfo.put(Constants.METADATA_VALUE_LIST, new ArrayList<String>(metadata.values()));
 
-                    if (annInfo != null) {
-                        header = (String) annInfo.get(Constants.DESCRIPTION);
-                        if (header != null) {
-                            // consider using the headers for additionnal info keySet
-                            headerField = header.substring(header.indexOf("(") + 1, header.indexOf(")")).split("\\|");
-                            ArrayList<String> headerList = new ArrayList<>();
-                            for (String head : headerField) {
-                                headerList.add(head);
-                            }
-                            additionalInfo.put(Constants.HEADER, headerList);
-                        }
-                    }
-                    for (String key : variantAnnotationObj.keySet()) {
-                        if (key.equals(VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE) || key.equals(VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME) || key.equals("")) {
-                            // do not store EFF_ge / EFF_nm as we get it from search variant
-                        } else {
-                            ArrayList<String> list = new ArrayList<>();
-                            list.add(variantAnnotationObj.get(key).toString());
-                            additionalInfo.put(key, list);
-                        }
-                    }
-                }
                 variantAnnotationBuilder.setTranscriptEffects(transcriptEffectList).setInfo(additionalInfo);
             }
         }
