@@ -1,5 +1,5 @@
 /*******************************************************************************
- * GIGWA - Service implementation
+ * GIGWA - Genotype Investigator for Genome Wide Analyses
  * Copyright (C) 2016, 2018, <CIRAD> <IRD>
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -18,6 +18,7 @@ package fr.cirad.tools.mgdb;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -112,8 +113,11 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	
 	private List<Integer> filteredGroups;
 	
-	/** The current tagged variant index. */
-	private int currentTaggedVariantIndex = -1;
+//	/** The current tagged variant index. */
+//	private int currentTaggedVariantIndex = -1;
+	
+	/** Used for shuffling queried chunks */
+	private List<Integer> intervalIndexList;
 	
 	private List<Map> taggedVariantList;
 
@@ -256,8 +260,15 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 		
 		this.nTotalVariantCount = mongoTemplate.count(null, MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS) + 1;
 		if (this.nTotalVariantCount == 1)
+		{
 			MgdbDao.prepareDatabaseForSearches(mongoTemplate);	// list does not exist: create it
+			this.nTotalVariantCount = mongoTemplate.count(null, MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS) + 1;
+		}
 		this.taggedVariantList = mongoTemplate.findAll(Map.class, MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS);
+		
+		intervalIndexList = new ArrayList<>();
+		for (int i=0; i<=taggedVariantList.size(); i++)
+			intervalIndexList.add(i);
 		
 		this.groupFields = new BasicDBObject();
 		this.projectionFields = new BasicDBObject();
@@ -310,7 +321,13 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	@Override
 	public boolean hasNext()
 	{
-		return taggedVariantList.size() > 0 && currentTaggedVariantIndex < taggedVariantList.size();
+		return taggedVariantList.size() > 0 && intervalIndexList.size() > 0;
+	}
+	
+	public List<Integer> suffleChunkOrder()
+	{
+		Collections.shuffle(intervalIndexList);
+		return new ArrayList<Integer> (intervalIndexList);
 	}
 
 	/* (non-Javadoc)
@@ -340,19 +357,20 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
         if (mongoTemplate.count(null, GenotypingProject.class) != 1)
 			initialMatchList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID, genotypingProject.getId()));
     	
-        String currentTaggedVariant = currentTaggedVariantIndex >=0 && currentTaggedVariantIndex < taggedVariantList.size() ? (String) taggedVariantList.get(currentTaggedVariantIndex).get("_id") : null;
+        int currentInterval = intervalIndexList.get(0);
+        intervalIndexList.remove(0);
+        
     	BasicDBList chunkMatchAndList = new BasicDBList();
     	String leftBound = null, rightBound = null;
-		if (currentTaggedVariant != null)
+        if (currentInterval > 0)
 		{
-			leftBound = currentTaggedVariant;
+			leftBound = (String) taggedVariantList.get(currentInterval - 1).get("_id");
 			chunkMatchAndList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, new BasicDBObject("$gt", leftBound)));
 		}
-		
-		currentTaggedVariant = ++currentTaggedVariantIndex < taggedVariantList.size() ? (String) taggedVariantList.get(currentTaggedVariantIndex).get("_id") : null;
-		if (currentTaggedVariant != null)
+        
+        if (currentInterval < taggedVariantList.size())
 		{
-			rightBound = currentTaggedVariant;
+			rightBound = (String) taggedVariantList.get(currentInterval).get("_id");
 			chunkMatchAndList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, new BasicDBObject("$lte", rightBound)));
 		}
 
