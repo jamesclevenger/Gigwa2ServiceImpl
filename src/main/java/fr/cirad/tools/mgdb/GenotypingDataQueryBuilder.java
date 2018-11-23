@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.commons.math.util.MathUtils;
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
-//import org.codehaus.jackson.map.ObjectMapper;
+import org.codehaus.jackson.map.ObjectMapper;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -476,8 +476,8 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 		DBObject group = (DBObject) groupFields.clone();
 		group.put("_id", "$_id." + VariantRunDataId.FIELDNAME_VARIANT_ID); // group multi-run records by variant id
         DBObject project = (DBObject) projectionFields.clone();
-        BasicDBObject addFieldsVars = new BasicDBObject();	// used for handling "all same" filter
-        BasicDBObject addFieldsIn = new BasicDBObject();	// used for handling "all same" filter
+        BasicDBObject addFieldsVars = new BasicDBObject();	// used for handling "all or mostly the same" filter
+        BasicDBObject addFieldsIn = new BasicDBObject();	// used for handling "all or mostly the same" filter
     	BasicDBObject vars = new BasicDBObject();
     	BasicDBObject in = new BasicDBObject();
         BasicDBObject subIn = new BasicDBObject();
@@ -488,8 +488,10 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	        int nMaxNumberOfAllelesForOneVariant = maxAlleleCount > 0 ? maxAlleleCount : genotypingProject.getAlleleCounts().last(), nPloidy = genotypingProject.getPloidyLevel();
 	        int nNumberOfPossibleGenotypes = (int) (nMaxNumberOfAllelesForOneVariant + MathUtils.factorial(nMaxNumberOfAllelesForOneVariant)/(MathUtils.factorial(nPloidy)*MathUtils.factorial(nMaxNumberOfAllelesForOneVariant-nPloidy)) + (missingData[g] != null && missingData[g] >= 100/selectedIndividuals[g].size() ? 1 : 0));
 
+	        /*	existingGenotypeCountList is calculated by subtracting the number of existing (and with high enough values
+	        	in annotation fields) genotypes from the total number of involved individuals. */
+            BasicDBList missingGenotypeCountList = new BasicDBList(), existingGenotypeCountList = new BasicDBList();
         	BasicDBList altAlleleCountList = new BasicDBList();
-            BasicDBList missingGenotypeCountList = new BasicDBList();
             BasicDBList distinctGenotypeList = new BasicDBList();
             
 			for (int j=0; j<selectedIndividuals[g].size(); j++)
@@ -501,7 +503,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 		    	{
 					GenotypingSample individualSample = individualSamples.get(k);
 					String pathToGT = individualSample.getId() + "." + SampleGenotype.FIELDNAME_GENOTYPECODE;
-					String fullPathToGT = "$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + pathToGT;
+					Object fullPathToGT = "$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + pathToGT;
 					group.put(pathToGT.replaceAll("\\.", "¤"), new BasicDBObject("$addToSet", fullPathToGT));
 					individualSampleGenotypeList.add("$" + pathToGT.replaceAll("\\.", "¤"));
 	        		
@@ -525,6 +527,9 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	
 			        if (k > 0)
 						continue;	// the remaining code in this loop must only be executed once
+			        
+			        if (conditionsWhereAnnotationFieldValueIsTooLow.size() > 0)
+			        	fullPathToGT = new BasicDBObject("$cond", new Object[] {new BasicDBObject("$or", conditionsWhereAnnotationFieldValueIsTooLow), null, fullPathToGT});
 					
 	                if (fMafApplied[g])
 	                {	// count alternate alleles
@@ -539,8 +544,12 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	                		missingGenotypeCountList.add(new BasicDBObject("$abs", new BasicDBObject("$cmp", new Object[] {new BasicDBObject("$size", "$$u" + g + "_" + j), 1})));
 	                	else
 	                	{
-	                		BasicDBObject missingGtCalculation = new BasicDBObject("$max", new Object[] {0, new BasicDBObject("$cmp", new Object[] {"", fullPathToGT})});
-	       					missingGenotypeCountList.add(missingGtCalculation);
+	          	          	/*	{"$cmp" : ["$sp.1.gt", null]} returns :
+	          	          			1 if gt exists and is not null,
+	          	          			0 if gt is null (because of annotation non-matched field threshold
+	          	          			-1 if gt does not exist */
+	                		BasicDBObject missingGtCalculation = new BasicDBObject("$max", new Object[] {0, new BasicDBObject("$cmp", new Object[] {fullPathToGT, null})});
+	                		existingGenotypeCountList.add(missingGtCalculation);
 	                	}
 	                }
 	                
@@ -564,8 +573,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 					union.put("as", "gt");
 					union.put("cond", new BasicDBObject("$ne", Arrays.asList("$$gt", null)));
 					BasicDBObject filteredGenotypeUnion = new BasicDBObject("$filter", union);	// union of (non-missing) genotypes for a given multi-sample individual
-					
-	
+
 					if (conditionsWhereAnnotationFieldValueIsTooLow.size() == 0)
 						vars.put("u" + g + "_" + j, filteredGenotypeUnion);
 					else
@@ -579,8 +587,11 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 				in.put("a" + g, new BasicDBObject("$add", altAlleleCountList));	// number of alternate alleles in selected population
 			}
 
+			//  number of missing genotypes in selected population
 			if (missingGenotypeCountList.size() > 0)
-	        	in.put("m" + g, new BasicDBObject("$add", missingGenotypeCountList));	//  number of missing genotypes in selected population
+				in.put("m" + g, new BasicDBObject("$add", missingGenotypeCountList));
+			else if (existingGenotypeCountList.size() > 0)
+				in.put("m" + g, new BasicDBObject("$subtract", new Object[] {selectedIndividuals[g].size(), new BasicDBObject("$add", existingGenotypeCountList)}));	//  number of missing genotypes in selected population
 			
 			if (fCompareBetweenGenotypes[g] && !fMostSameSelected)
 			{
@@ -919,9 +930,9 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	static public List<Integer> getGroupsForWhichToFilterOnGenotypingData(GigwaSearchVariantsRequest gsvr)
     {
         List<Integer> result = new ArrayList<>();
-    	if (!gsvr.getGtPattern().equals(GENOTYPE_CODE_LABEL_ALL) || gsvr.getAnnotationFieldThresholds().size() >= 1 || gsvr.getMissingData() < 100 || gsvr.getMinmaf() > 0 || gsvr.getMaxmaf() < 50)
+    	if (!gsvr.getGtPattern().equals(GENOTYPE_CODE_LABEL_ALL)/* || gsvr.getAnnotationFieldThresholds().size() >= 1*/ || gsvr.getMissingData() < 100 || gsvr.getMinmaf() > 0 || gsvr.getMaxmaf() < 50)
     		result.add(0);
-    	if (!gsvr.getGtPattern2().equals(GENOTYPE_CODE_LABEL_ALL) || gsvr.getAnnotationFieldThresholds2().size() >= 1 || gsvr.getMissingData2() < 100 || gsvr.getMinmaf2() > 0 || gsvr.getMaxmaf2() < 50)
+    	if (!gsvr.getGtPattern2().equals(GENOTYPE_CODE_LABEL_ALL)/* || gsvr.getAnnotationFieldThresholds2().size() >= 1*/ || gsvr.getMissingData2() < 100 || gsvr.getMinmaf2() > 0 || gsvr.getMaxmaf2() < 50)
     		result.add(1);
 
     	return result;
