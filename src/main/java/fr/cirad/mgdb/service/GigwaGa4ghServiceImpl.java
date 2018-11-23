@@ -115,6 +115,7 @@ import fr.cirad.mgdb.exporting.markeroriented.AbstractMarkerOrientedExportHandle
 import fr.cirad.mgdb.importing.SequenceImport;
 import fr.cirad.mgdb.importing.VcfImport;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
+import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader.VcfHeaderId;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
@@ -703,6 +704,12 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         
         if (token == null)
             return null;
+        
+        ProgressIndicator progress = ProgressIndicator.get(token);
+        if (progress == null) {
+            progress = new ProgressIndicator(token, new String[0]);
+            ProgressIndicator.registerProgressIndicator(progress);
+        }
 
         String info[] = GigwaSearchVariantsRequest.getInfoFromId(gsvr.getVariantSetId(), 2);
         String sModule = info[0];
@@ -726,6 +733,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         // skip the results we don't want           
         cursor.skip(Integer.parseInt(gsvr.getPageToken()) * gsvr.getPageSize()).limit(gsvr.getPageSize());
 
+        progress.markAsComplete();
         return cursor;
     }
 
@@ -951,7 +959,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         }
         
         if (partialCountArray == null)
-        	nTotalCount = countVariants(gsvr, false);
+        	nTotalCount = countVariants(gsvr, true);
 
         if (progress.isAborted() || progress.getError() != null)
             return 0;
@@ -2807,11 +2815,16 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 // source version is stored in the ontology map 
                 String sourceVersion = getOntologyId(Constants.VERSION) == null ? "" : getOntologyId(Constants.VERSION);
 
-                BasicDBObject fieldHeader = new BasicDBObject();                
-                	fieldHeader.put(Constants.INFO_META_DATA + "." + (fAnnStyle ? VcfImport.ANNOTATION_FIELDNAME_ANN : VcfImport.ANNOTATION_FIELDNAME_EFF) + "." + Constants.DESCRIPTION, 1);
+                BasicDBObject fieldHeader = new BasicDBObject(Constants.INFO_META_DATA + "." + (fAnnStyle ? VcfImport.ANNOTATION_FIELDNAME_ANN : VcfImport.ANNOTATION_FIELDNAME_EFF) + "." + Constants.DESCRIPTION, 1);
                 if (fAnnStyle)
-                	fieldHeader.put(Constants.INFO_META_DATA + "." + VcfImport.ANNOTATION_FIELDNAME_CSQ+ "." + Constants.DESCRIPTION, 1);
-                DBObject vcfHeaderEff = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(DBVCFHeader.class)).findOne(new BasicDBObject(), fieldHeader);
+                	fieldHeader.put(Constants.INFO_META_DATA + "." + VcfImport.ANNOTATION_FIELDNAME_CSQ + "." + Constants.DESCRIPTION, 1);
+                
+                DBCollection vcfHeaderColl = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(DBVCFHeader.class));
+                BasicDBList vcfHeaderQueryOrList = new BasicDBList();
+                for (String key : fieldHeader.keySet())
+                	vcfHeaderQueryOrList.add(new BasicDBObject(key, new BasicDBObject("$exists", true)));
+
+                DBObject vcfHeaderEff = vcfHeaderColl.findOne(new BasicDBObject("$or", vcfHeaderQueryOrList), fieldHeader);
 
                 ArrayList<String> headerList = new ArrayList<>();
                 LinkedHashSet<String> usedHeaderSet = new LinkedHashSet<>();
@@ -2823,7 +2836,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 if (annInfo != null) {
                     header = (String) annInfo.get(Constants.DESCRIPTION);
                     if (header != null) {
-                        // consider using the headers for additionnal info keySet
+                        // consider using the headers for additional info keySet
                     	String sBeforeFieldList = fAnnStyle ? ": " : " (";
                         headerField = header.substring(header.indexOf(sBeforeFieldList) + sBeforeFieldList.length(), fAnnStyle ? header.length() : header.indexOf(")")).split("\\|");
                         for (String head : headerField)
@@ -2902,43 +2915,43 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
                     if (fAnnStyle)
                     {
-//                    	System.out.println("\n" + tableTranscriptEffect[i]);
                     	for (String positionHeader : Arrays.asList("cDNA_position", "CDS_position", "Protein_position"))
                     	{
 		                    int nPos = headerList.indexOf(positionHeader);
-		                    String value = values.get(nPos);
-		                    if (nPos != -1 && !value.equals(""))
+		                    if (nPos != -1)
 		                    {
-		                    	AlleleLocation.Builder allLocBuilder = AlleleLocation.newBuilder();
-	                    		String[] splitVals = value.split("/");
-	                    		if (splitVals.length == 1 && value.contains("-"))
-	                    			splitVals = value.split("-");	// sometimes used as separator
-	                    		try
-	                    		{
-	                    			allLocBuilder.setStart(Integer.parseInt(splitVals[0]));
-	                    		}
-	                    		catch (NumberFormatException ignored)
-	                    		{}
+			                    String value = values.get(nPos);
+		                    	if (!value.equals(""))
+			                    {
+			                    	AlleleLocation.Builder allLocBuilder = AlleleLocation.newBuilder();
+		                    		String[] splitVals = value.split("/");
+		                    		if (splitVals.length == 1 && value.contains("-"))
+		                    			splitVals = value.split("-");	// sometimes used as separator
+		                    		try
+		                    		{
+		                    			allLocBuilder.setStart(Integer.parseInt(splitVals[0]));
+		                    		}
+		                    		catch (NumberFormatException ignored)
+		                    		{}
+	
+			                    	if (allLocBuilder.getStart() == 0)
+			                    		continue;
+			                    	
+			                    	boolean fWorkingOnProtein = "Protein_position".equals(positionHeader);
+	
+			                    	String sRefAllele = ((List<String>) variantRunDataObj.get(VariantData.FIELDNAME_KNOWN_ALLELE_LIST)).get(0);
+			                    	if (!fWorkingOnProtein)
+		                    			allLocBuilder.setEnd(allLocBuilder.getStart() + sRefAllele.length() - 1);
+//			                    	else
+			                    		/* TODO: don't know how to calculate END field for proteins */
 
-		                    	if (allLocBuilder.getStart() == 0)
-		                    		continue;
-		                    	
-		                    	boolean fWorkingOnProtein = "Protein_position".equals(positionHeader);
-
-		                    	String sRefAllele = ((List<String>) variantRunDataObj.get(VariantData.FIELDNAME_KNOWN_ALLELE_LIST)).get(0);
-		                    	if (!fWorkingOnProtein)
-	                    			allLocBuilder.setEnd(allLocBuilder.getStart() + sRefAllele.length() - 1);
-//		                    	else
-		                    		/* TODO: don't know how to calculate END field for proteins */
-
-//			                    System.out.println(positionHeader + " (" + sRefAllele + "/" + values.get(headerList.indexOf("Allele")) + ") -> " + value + ": " + allLocBuilder.build());
-
-		                    	if ("cDNA_position".equals(positionHeader))
-		                    		cDnaLocation = allLocBuilder.build();
-		                    	else if (!fWorkingOnProtein)
-		                    		cdsLocation = allLocBuilder.build();
-		                    	else
-		                    		proteinLocation = allLocBuilder.build();
+			                    	if ("cDNA_position".equals(positionHeader))
+			                    		cDnaLocation = allLocBuilder.build();
+			                    	else if (!fWorkingOnProtein)
+			                    		cdsLocation = allLocBuilder.build();
+			                    	else
+			                    		proteinLocation = allLocBuilder.build();
+			                    }
 		                    }
                     	}
                     }
@@ -2965,7 +2978,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 for (int i=0; i<tableTranscriptEffect.length; i++)
                 {
                 	List<String> keptValues = new ArrayList<String>(), allValues = additionalInfo.get(Constants.ANN_VALUE_LIST_PREFIX + i);
-	                for (int j=0; j<headerList.size(); j++)
+	                for (int j=0; j<allValues.size(); j++)
 	                	if (usedHeaderSet.contains(headerList.get(j)))
 	                		keptValues.add(allValues.get(j));
 	                additionalInfo.put(Constants.ANN_VALUE_LIST_PREFIX + i, keptValues);
