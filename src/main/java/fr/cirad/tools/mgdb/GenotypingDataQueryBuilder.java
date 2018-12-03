@@ -88,7 +88,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	private Integer[] mostSameRatio = new Integer[2];
 	
 	/** The annotation field thresholds. */
-	private HashMap<String, Integer>[] annotationFieldThresholds = new HashMap[2];
+	private HashMap<String, Float>[] annotationFieldThresholds = new HashMap[2];
 		
 	/** The missing data threshold. */
 	private Float[] missingData = new Float[2];
@@ -510,7 +510,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 					if (annotationFieldThresholds[g] != null)
 						for (String annotation : annotationFieldThresholds[g].keySet())
 						{
-							Integer threshold = annotationFieldThresholds[g].get(annotation);
+							Float threshold = annotationFieldThresholds[g].get(annotation);
 							if (threshold == 0)
 								continue;
 
