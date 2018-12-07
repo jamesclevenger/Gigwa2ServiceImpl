@@ -2804,191 +2804,193 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 if (!fAnnStyle)
                 	ann = (String) variantAnnotationObj.get(VcfImport.ANNOTATION_FIELDNAME_EFF);
                 Map<String, List<String>> additionalInfo = new HashMap<>();
-                List<TranscriptEffect> transcriptEffectList;
 
                 String[] tableTranscriptEffect = new String[0];
                 if (ann != null)
+                {
                     tableTranscriptEffect = ann.split(",");
-
-                transcriptEffectList = new ArrayList<>();
-
-                // source version is stored in the ontology map 
-                String sourceVersion = getOntologyId(Constants.VERSION) == null ? "" : getOntologyId(Constants.VERSION);
-
-                BasicDBObject fieldHeader = new BasicDBObject(Constants.INFO_META_DATA + "." + (fAnnStyle ? VcfImport.ANNOTATION_FIELDNAME_ANN : VcfImport.ANNOTATION_FIELDNAME_EFF) + "." + Constants.DESCRIPTION, 1);
-                if (fAnnStyle)
-                	fieldHeader.put(Constants.INFO_META_DATA + "." + VcfImport.ANNOTATION_FIELDNAME_CSQ + "." + Constants.DESCRIPTION, 1);
-                
-                DBCollection vcfHeaderColl = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(DBVCFHeader.class));
-                BasicDBList vcfHeaderQueryOrList = new BasicDBList();
-                for (String key : fieldHeader.keySet())
-                	vcfHeaderQueryOrList.add(new BasicDBObject(key, new BasicDBObject("$exists", true)));
-
-                DBObject vcfHeaderEff = vcfHeaderColl.findOne(new BasicDBObject("$or", vcfHeaderQueryOrList), fieldHeader);
-
-                ArrayList<String> headerList = new ArrayList<>();
-                LinkedHashSet<String> usedHeaderSet = new LinkedHashSet<>();
-                if (!fAnnStyle)
-                	headerList.add("Consequence");	// EFF style annotations
-                DBObject annInfo = (DBObject) ((DBObject) vcfHeaderEff.get(Constants.INFO_META_DATA)).get(fAnnStyle ? VcfImport.ANNOTATION_FIELDNAME_ANN : VcfImport.ANNOTATION_FIELDNAME_EFF);
-                if (annInfo == null && fAnnStyle)
-                	annInfo = (DBObject) ((DBObject) vcfHeaderEff.get(Constants.INFO_META_DATA)).get(VcfImport.ANNOTATION_FIELDNAME_CSQ);
-                if (annInfo != null) {
-                    header = (String) annInfo.get(Constants.DESCRIPTION);
-                    if (header != null) {
-                        // consider using the headers for additional info keySet
-                    	String sBeforeFieldList = fAnnStyle ? ": " : " (";
-                        headerField = header.substring(header.indexOf(sBeforeFieldList) + sBeforeFieldList.length(), fAnnStyle ? header.length() : header.indexOf(")")).split("\\|");
-                        for (String head : headerField)
-                            headerList.add(head.replace("[", "").replace("]", "").trim());
-                    }
-                }
-
-                List<AnalysisResult> listAnalysisResults = new ArrayList<>();
-
-                for (int i=0; i<tableTranscriptEffect.length; i++) {
-                	ArrayList<String> values = new ArrayList<>();
-                	
-                    if (!fAnnStyle) {	// EFF style annotations
-                    	int parenthesisPos = tableTranscriptEffect[i].indexOf("(");
-                    	values.add(tableTranscriptEffect[i].substring(0, parenthesisPos));
-                    	tableTranscriptEffect[i] = tableTranscriptEffect[i].substring(parenthesisPos + 1).replace(")", "");
-                    }
-
-                    List<OntologyTerm> ontologyList = new ArrayList<>();
-
-                    String[] effectFields = tableTranscriptEffect[i].split("\\|", -1);
-                    for (int j=0; j<effectFields.length; j++)
-                    {
-                    	values.add(effectFields[j]);
-                    	if (effectFields[j].endsWith(")"))
-                    	{
-                    		String[] splitVal = effectFields[j].substring(0,  effectFields[j].length() - 1).split("\\(");
-                    		if (splitVal.length == 2)
-	                    		try
-	                    		{                    			
-	    							AnalysisResult analysisResult = new AnalysisResult();
-	    							analysisResult.setAnalysisId(headerList.get(j));
-	    							analysisResult.setResult(splitVal[0]);
-	    							analysisResult.setScore((int)(100 * Float.parseFloat(splitVal[1])));
-	    							listAnalysisResults.add(analysisResult);
-	                    		}
-	                    		catch (NumberFormatException ignored)
-	                    		{}
-                    	}
-                    }
-
-                    int impactIndex = headerList.indexOf(fAnnStyle ? "IMPACT" : "Effefct_Impact");
-                    if (impactIndex != -1)
-	                {
-	                    String[] impact = values.get(impactIndex).split("&");
-	                    
-	                    for (String anImpact : impact) {
-	                        String ontologyId = getOntologyId(anImpact);
-	                        if (ontologyId == null) {
-	                            ontologyId = "";
-	                        }
-	                        OntologyTerm ontologyTerm = OntologyTerm.newBuilder()
-	                                .setId(ontologyId)
-	                                .setSourceName("sequence ontology")
-	                                .setSourceVersion(sourceVersion)
-	                                .setTerm(anImpact)
-	                                .build();
-	                        ontologyList.add(ontologyTerm);
+                    List<TranscriptEffect> transcriptEffectList = new ArrayList<>();
+	
+	                // source version is stored in the ontology map 
+	                String sourceVersion = getOntologyId(Constants.VERSION) == null ? "" : getOntologyId(Constants.VERSION);
+	
+	                BasicDBObject fieldHeader = new BasicDBObject(Constants.INFO_META_DATA + "." + (fAnnStyle ? VcfImport.ANNOTATION_FIELDNAME_ANN : VcfImport.ANNOTATION_FIELDNAME_EFF) + "." + Constants.DESCRIPTION, 1);
+	                if (fAnnStyle)
+	                	fieldHeader.put(Constants.INFO_META_DATA + "." + VcfImport.ANNOTATION_FIELDNAME_CSQ + "." + Constants.DESCRIPTION, 1);
+	                
+	                DBCollection vcfHeaderColl = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(DBVCFHeader.class));
+	                BasicDBList vcfHeaderQueryOrList = new BasicDBList();
+	                for (String key : fieldHeader.keySet())
+	                	vcfHeaderQueryOrList.add(new BasicDBObject(key, new BasicDBObject("$exists", true)));
+	
+	                DBObject vcfHeaderEff = vcfHeaderColl.findOne(new BasicDBObject("$or", vcfHeaderQueryOrList), fieldHeader);
+	
+	                ArrayList<String> headerList = new ArrayList<>();
+	                LinkedHashSet<String> usedHeaderSet = new LinkedHashSet<>();
+	                if (!fAnnStyle)
+	                	headerList.add("Consequence");	// EFF style annotations
+	                DBObject annInfo = (DBObject) ((DBObject) vcfHeaderEff.get(Constants.INFO_META_DATA)).get(fAnnStyle ? VcfImport.ANNOTATION_FIELDNAME_ANN : VcfImport.ANNOTATION_FIELDNAME_EFF);
+	                if (annInfo == null && fAnnStyle)
+	                	annInfo = (DBObject) ((DBObject) vcfHeaderEff.get(Constants.INFO_META_DATA)).get(VcfImport.ANNOTATION_FIELDNAME_CSQ);
+	                if (annInfo != null) {
+	                    header = (String) annInfo.get(Constants.DESCRIPTION);
+	                    if (header != null) {
+	                        // consider using the headers for additional info keySet
+	                    	String sBeforeFieldList = fAnnStyle ? ": " : " (";
+	                        headerField = header.substring(header.indexOf(sBeforeFieldList) + sBeforeFieldList.length(), fAnnStyle ? header.length() : header.indexOf(")")).split("\\|");
+	                        for (String head : headerField)
+	                            headerList.add(head.replace("[", "").replace("]", "").trim());
 	                    }
 	                }
-
-                    HGVSAnnotation.Builder hgvsBuilder = HGVSAnnotation.newBuilder();
-                    AlleleLocation cDnaLocation = null;
-                    AlleleLocation cdsLocation = null;
-                    AlleleLocation proteinLocation = null;
-                    int nC = headerList.indexOf("HGVSc"), nP = headerList.indexOf("HGVSp"), nT = headerList.indexOf("Transcript");
-                    if ((nC != -1 && !values.get(nC).isEmpty()) || (nP != -1 && !values.get(nP).isEmpty()) || (nT != -1 && !values.get(nT).isEmpty()))
-                	{
-                		if (nC != -1)
-                			hgvsBuilder.setGenomic(values.get(nC));
-                		if (nT != -1)
-                			hgvsBuilder.setTranscript(values.get(nT));
-                		if (nP != -1)
-                			hgvsBuilder.setProtein(values.get(nP));
-                	}
-
-                    if (fAnnStyle)
-                    {
-                    	for (String positionHeader : Arrays.asList("cDNA_position", "CDS_position", "Protein_position"))
-                    	{
-		                    int nPos = headerList.indexOf(positionHeader);
-		                    if (nPos != -1)
-		                    {
-			                    String value = values.get(nPos);
-		                    	if (!value.equals(""))
-			                    {
-			                    	AlleleLocation.Builder allLocBuilder = AlleleLocation.newBuilder();
-		                    		String[] splitVals = value.split("/");
-		                    		if (splitVals.length == 1 && value.contains("-"))
-		                    			splitVals = value.split("-");	// sometimes used as separator
+	
+	                List<AnalysisResult> listAnalysisResults = new ArrayList<>();
+	
+	                for (int i=0; i<tableTranscriptEffect.length; i++) {
+	                	ArrayList<String> values = new ArrayList<>();
+	                	
+	                    if (!fAnnStyle) {	// EFF style annotations
+	                    	int parenthesisPos = tableTranscriptEffect[i].indexOf("(");
+	                    	values.add(tableTranscriptEffect[i].substring(0, parenthesisPos));
+	                    	tableTranscriptEffect[i] = tableTranscriptEffect[i].substring(parenthesisPos + 1).replace(")", "");
+	                    }
+	
+	                    List<OntologyTerm> ontologyList = new ArrayList<>();
+	
+	                    String[] effectFields = tableTranscriptEffect[i].split("\\|", -1);
+	                    for (int j=0; j<effectFields.length; j++)
+	                    {
+	                    	values.add(effectFields[j]);
+	                    	if (effectFields[j].endsWith(")"))
+	                    	{
+	                    		String[] splitVal = effectFields[j].substring(0,  effectFields[j].length() - 1).split("\\(");
+	                    		if (splitVal.length == 2)
 		                    		try
-		                    		{
-		                    			allLocBuilder.setStart(Integer.parseInt(splitVals[0]));
+		                    		{                    			
+		    							AnalysisResult analysisResult = new AnalysisResult();
+		    							analysisResult.setAnalysisId(headerList.get(j));
+		    							analysisResult.setResult(splitVal[0]);
+		    							analysisResult.setScore((int)(100 * Float.parseFloat(splitVal[1])));
+		    							listAnalysisResults.add(analysisResult);
 		                    		}
 		                    		catch (NumberFormatException ignored)
 		                    		{}
+	                    	}
+	                    }
 	
-			                    	if (allLocBuilder.getStart() == 0)
-			                    		continue;
-			                    	
-			                    	boolean fWorkingOnProtein = "Protein_position".equals(positionHeader);
-	
-			                    	String sRefAllele = ((List<String>) variantRunDataObj.get(VariantData.FIELDNAME_KNOWN_ALLELE_LIST)).get(0);
-			                    	if (!fWorkingOnProtein)
-		                    			allLocBuilder.setEnd(allLocBuilder.getStart() + sRefAllele.length() - 1);
-//			                    	else
-			                    		/* TODO: don't know how to calculate END field for proteins */
-
-			                    	if ("cDNA_position".equals(positionHeader))
-			                    		cDnaLocation = allLocBuilder.build();
-			                    	else if (!fWorkingOnProtein)
-			                    		cdsLocation = allLocBuilder.build();
-			                    	else
-			                    		proteinLocation = allLocBuilder.build();
-			                    }
+	                    int impactIndex = headerList.indexOf(fAnnStyle ? "IMPACT" : "Effefct_Impact");
+	                    if (impactIndex != -1)
+		                {
+		                    String[] impact = values.get(impactIndex).split("&");
+		                    
+		                    for (String anImpact : impact) {
+		                        String ontologyId = getOntologyId(anImpact);
+		                        if (ontologyId == null) {
+		                            ontologyId = "";
+		                        }
+		                        OntologyTerm ontologyTerm = OntologyTerm.newBuilder()
+		                                .setId(ontologyId)
+		                                .setSourceName("sequence ontology")
+		                                .setSourceVersion(sourceVersion)
+		                                .setTerm(anImpact)
+		                                .build();
+		                        ontologyList.add(ontologyTerm);
 		                    }
-                    	}
-                    }
+		                }
+	
+	                    HGVSAnnotation.Builder hgvsBuilder = HGVSAnnotation.newBuilder();
+	                    AlleleLocation cDnaLocation = null;
+	                    AlleleLocation cdsLocation = null;
+	                    AlleleLocation proteinLocation = null;
+	                    int nC = headerList.indexOf("HGVSc"), nP = headerList.indexOf("HGVSp"), nT = headerList.indexOf("Transcript");
+	                    if ((nC != -1 && !values.get(nC).isEmpty()) || (nP != -1 && !values.get(nP).isEmpty()) || (nT != -1 && !values.get(nT).isEmpty()))
+	                	{
+	                		if (nC != -1)
+	                			hgvsBuilder.setGenomic(values.get(nC));
+	                		if (nT != -1)
+	                			hgvsBuilder.setTranscript(values.get(nT));
+	                		if (nP != -1)
+	                			hgvsBuilder.setProtein(values.get(nP));
+	                	}
+	
+	                    if (fAnnStyle)
+	                    {
+	                    	for (String positionHeader : Arrays.asList("cDNA_position", "CDS_position", "Protein_position"))
+	                    	{
+			                    int nPos = headerList.indexOf(positionHeader);
+			                    if (nPos != -1)
+			                    {
+				                    String value = values.get(nPos);
+			                    	if (!value.equals(""))
+				                    {
+				                    	AlleleLocation.Builder allLocBuilder = AlleleLocation.newBuilder();
+			                    		String[] splitVals = value.split("/");
+			                    		if (splitVals.length == 1 && value.contains("-"))
+			                    			splitVals = value.split("-");	// sometimes used as separator
+			                    		try
+			                    		{
+			                    			allLocBuilder.setStart(Integer.parseInt(splitVals[0]));
+			                    		}
+			                    		catch (NumberFormatException ignored)
+			                    		{}
+		
+				                    	if (allLocBuilder.getStart() == 0)
+				                    		continue;
+				                    	
+				                    	boolean fWorkingOnProtein = "Protein_position".equals(positionHeader);
+		
+				                    	String sRefAllele = ((List<String>) variantRunDataObj.get(VariantData.FIELDNAME_KNOWN_ALLELE_LIST)).get(0);
+				                    	if (!fWorkingOnProtein)
+			                    			allLocBuilder.setEnd(allLocBuilder.getStart() + sRefAllele.length() - 1);
+//				                    	else
+				                    		/* TODO: don't know how to calculate END field for proteins */
+	
+				                    	if ("cDNA_position".equals(positionHeader))
+				                    		cDnaLocation = allLocBuilder.build();
+				                    	else if (!fWorkingOnProtein)
+				                    		cdsLocation = allLocBuilder.build();
+				                    	else
+				                    		proteinLocation = allLocBuilder.build();
+				                    }
+			                    }
+	                    	}
+	                    }
+	
+	                    TranscriptEffect transcriptEffect = TranscriptEffect.newBuilder()
+	                            .setAlternateBases(values.get(0))
+	                            .setId(id + ID_SEPARATOR + i)
+	                            .setEffects(ontologyList)
+	                            .setHgvsAnnotation(hgvsBuilder.build())
+	                            .setCDNALocation(cDnaLocation)
+	                            .setCDSLocation(cdsLocation)
+	                            .setProteinLocation(proteinLocation)
+	                            .setFeatureId(values.get(6))
+	                            .setAnalysisResults(listAnalysisResults)
+	                            .build();
+	
+	                    transcriptEffectList.add(transcriptEffect);
+	                    additionalInfo.put(Constants.ANN_VALUE_LIST_PREFIX + i, values);
+	                    for (int j=0; j<values.size(); j++)
+	                    	if (!values.get(j).isEmpty())
+	                    		usedHeaderSet.add(headerList.get(j));
+	                }
+	                
+	                for (int i=0; i<tableTranscriptEffect.length; i++)
+	                {
+	                	List<String> keptValues = new ArrayList<String>(), allValues = additionalInfo.get(Constants.ANN_VALUE_LIST_PREFIX + i);
+		                for (int j=0; j<allValues.size(); j++)
+		                	if (usedHeaderSet.contains(headerList.get(j)))
+		                		keptValues.add(allValues.get(j));
+		                additionalInfo.put(Constants.ANN_VALUE_LIST_PREFIX + i, keptValues);
+	                }
 
-                    TranscriptEffect transcriptEffect = TranscriptEffect.newBuilder()
-                            .setAlternateBases(values.get(0))
-                            .setId(id + ID_SEPARATOR + i)
-                            .setEffects(ontologyList)
-                            .setHgvsAnnotation(hgvsBuilder.build())
-                            .setCDNALocation(cDnaLocation)
-                            .setCDSLocation(cdsLocation)
-                            .setProteinLocation(proteinLocation)
-                            .setFeatureId(values.get(6))
-                            .setAnalysisResults(listAnalysisResults)
-                            .build();
-
-                    transcriptEffectList.add(transcriptEffect);
-                    additionalInfo.put(Constants.ANN_VALUE_LIST_PREFIX + i, values);
-                    for (int j=0; j<values.size(); j++)
-                    	if (!values.get(j).isEmpty())
-                    		usedHeaderSet.add(headerList.get(j));
-                }
-                
-                for (int i=0; i<tableTranscriptEffect.length; i++)
-                {
-                	List<String> keptValues = new ArrayList<String>(), allValues = additionalInfo.get(Constants.ANN_VALUE_LIST_PREFIX + i);
-	                for (int j=0; j<allValues.size(); j++)
-	                	if (usedHeaderSet.contains(headerList.get(j)))
-	                		keptValues.add(allValues.get(j));
-	                additionalInfo.put(Constants.ANN_VALUE_LIST_PREFIX + i, keptValues);
-                }
-
-                ArrayList<String> properlySortedUsedHeaderList = new ArrayList<>();
-                for (String aHeader : headerList)
-                	if (usedHeaderSet.contains(aHeader))
-                		properlySortedUsedHeaderList.add(aHeader);
-                additionalInfo.put(Constants.ANN_HEADER, new ArrayList<String>(properlySortedUsedHeaderList));
+	                ArrayList<String> properlySortedUsedHeaderList = new ArrayList<>();
+	                for (String aHeader : headerList)
+	                	if (usedHeaderSet.contains(aHeader))
+	                		properlySortedUsedHeaderList.add(aHeader);
+	                additionalInfo.put(Constants.ANN_HEADER, new ArrayList<String>(properlySortedUsedHeaderList));
+	                
+	                variantAnnotationBuilder.setTranscriptEffects(transcriptEffectList);
+	            }
 
                 TreeMap<String, String> metadata = new TreeMap<>();
                 for (String key : variantAnnotationObj.keySet())
@@ -2997,8 +2999,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                         metadata.put(key, variantAnnotationObj.get(key).toString());
                 additionalInfo.put(Constants.METADATA_HEADER, new ArrayList<String>(metadata.keySet()));
                 additionalInfo.put(Constants.METADATA_VALUE_LIST, new ArrayList<String>(metadata.values()));
-
-                variantAnnotationBuilder.setTranscriptEffects(transcriptEffectList).setInfo(additionalInfo);
+                variantAnnotationBuilder.setInfo(additionalInfo);
             }
         }
         return variantAnnotationBuilder.build();
