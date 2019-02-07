@@ -115,7 +115,6 @@ import fr.cirad.mgdb.exporting.markeroriented.AbstractMarkerOrientedExportHandle
 import fr.cirad.mgdb.importing.SequenceImport;
 import fr.cirad.mgdb.importing.VcfImport;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
-import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader.VcfHeaderId;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
@@ -402,8 +401,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         int projId = Integer.parseInt(info[1]);
         
         int nProjectIndCount = MgdbDao.getProjectIndividuals(sModule, projId).size();
-        int nGroup1IndCount = gsvr.getCallSetIds().size() != 0 ? gsvr.getCallSetIds().size() : nProjectIndCount;
-        int nGroup2IndCount = gsvr.getCallSetIds2().size() != 0 ? gsvr.getCallSetIds().size() : nProjectIndCount;
+        int nGroup1IndCount = gsvr.getCallSetIds() != null && gsvr.getCallSetIds().size() != 0 ? gsvr.getCallSetIds().size() : nProjectIndCount;
+        int nGroup2IndCount = gsvr.getCallSetIds2() != null && gsvr.getCallSetIds2().size() != 0 ? gsvr.getCallSetIds().size() : nProjectIndCount;
         
     	List<Integer> groupsForWhichToFilterOnGenotypingData = GenotypingDataQueryBuilder.getGroupsForWhichToFilterOnGenotypingData(gsvr);
     	int nIndCount = (groupsForWhichToFilterOnGenotypingData.contains(0) ? nGroup1IndCount : 0)  + (groupsForWhichToFilterOnGenotypingData.contains(1) ? nGroup2IndCount : 0);
@@ -515,8 +514,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 boolean fMongoOnSameServer = mongoServerList.size() == 1 && Arrays.asList("127.0.0.1", "localhost").contains(mongoServerList.get(0).getHost());
                 if (variantQueryDBList.size() > 0)
                 {	// the Mongo server is a single server and is hosted locally (only case where pre-filtering may be worth, otherwise using $in is inefficient)
-                    int avgObjSize = (Integer) mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).getStats().get("avgObjSize");
-                    if (avgObjSize >= 10240)
+                	Number avgObjSize = (Number) mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).getStats().get("avgObjSize");
+                    if (avgObjSize.doubleValue() >= 10240)
                     {	// it may be worth pre-filtering data on variant collection because filtering speed on the run collection is affected by the document size
     	                long totalCount = mongoTemplate.count(new Query(), VariantData.class), preFilterCount = varColl.count(new BasicDBObject("$and", variantQueryDBList));
     	                fPreFilterOnVarColl = preFilterCount <= totalCount*(fMongoOnSameServer ? .85 : .45);	// only pre-filter if less than a given portion of the total variants are to be retained
@@ -810,8 +809,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 boolean fMongoOnSameServer = mongoServerList.size() == 1 && Arrays.asList("127.0.0.1", "localhost").contains(mongoServerList.get(0).getHost());
                 if (variantQueryDBList.size() > 0)
                 {	// the Mongo server is a single server and is hosted locally (only case where pre-filtering may be worth, otherwise using $in is inefficient)
-                    int avgObjSize = (Integer) mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).getStats().get("avgObjSize");
-                    if (avgObjSize >= 10240)
+                	Number avgObjSize = (Number) mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).getStats().get("avgObjSize");
+                    if (avgObjSize.doubleValue() >= 10240)
                     {	// it may be worth pre-filtering data on variant collection because filtering speed on the run collection is affected by the document size
     	                long totalCount = mongoTemplate.count(new Query(), VariantData.class), preFilterCount = varColl.count(new BasicDBObject("$and", variantQueryDBList));
     	                fPreFilterOnVarColl = preFilterCount <= totalCount*(fMongoOnSameServer ? .85 : .45);	// only pre-filter if less than a given portion of the total variants are to be retained
@@ -1096,7 +1095,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             if (individualOrientedExportHandler != null)
             {
                 if (!progress.isAborted()) {
-                    Thread importThread = new Thread() {
+                    Thread exportThread = new Thread() {
                     	public void run() {
                             try {
                                 progress.addStep("Reading and re-organizing genotypes"); // initial step will consist in organizing genotypes by individual rather than by marker
@@ -1128,14 +1127,14 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     	}
                     };
                     if (gsver.isKeepExportOnServer())
-                    	importThread.start();
+                    	exportThread.start();
                     else
                     {
                         String contentType = individualOrientedExportHandler.getExportContentType();
                         if (contentType != null && contentType.trim().length() > 0)
                         	response.setContentType(contentType);
 
-                        importThread.run();
+                        exportThread.run();
                     }
                 }
             }
@@ -1150,7 +1149,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 if (contentType != null && contentType.trim().length() > 0)
                 	response.setContentType(contentType);
                 
-                Thread importThread = new Thread() {
+                Thread exportThread = new Thread() {
                 	public void run() {
                         try {
                         	markerOrientedExportHandler.exportData(finalOS, sModule, samples1, samples2, progress, markerCursor, null, gsver.getAnnotationFieldThresholds(), gsver.getAnnotationFieldThresholds2(), samplesToExport, readyToExportFiles);
@@ -1175,9 +1174,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 	}
                 };
                 if (gsver.isKeepExportOnServer())
-                	importThread.start();
+                	exportThread.start();
                 else
-                	importThread.run();
+                	exportThread.run();
             }
 			else
 				throw new Exception("No export handler found for format " + gsver.getExportFormat());
@@ -2613,7 +2612,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 // if we don't want to retrieve genotype, just send an empty individuals list? 
 				Collection<GenotypingSample> samples;
 				if (getGT) {
-					samples = MgdbDao.getSamplesForProject(module, projId, gsvr.getCallSetIds());
+					samples = MgdbDao.getSamplesForProject(module, projId, gsvr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaGa4ghServiceImpl.ID_SEPARATOR))).collect(Collectors.toList()));
 				} else {
 					samples = new ArrayList<>();
 				}
