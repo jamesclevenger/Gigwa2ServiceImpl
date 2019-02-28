@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import org.apache.commons.math.util.MathUtils;
 import org.apache.log4j.Logger;
@@ -40,6 +41,7 @@ import com.mongodb.BasicDBObject;
 import com.mongodb.DBCollection;
 import com.mongodb.DBObject;
 
+import fr.cirad.controller.GigwaMethods;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
@@ -231,7 +233,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
        	q.addCriteria(Criteria.where(GenotypingProject.FIELDNAME_EFFECT_ANNOTATIONS + ".0").exists(true));
        	this.projectHasEffectAnnotations = mongoTemplate.findOne(q, GenotypingProject.class) != null;
 
-		this.selectedIndividuals[0] = gsvr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gsvr.getCallSetIds();
+		this.selectedIndividuals[0] = gsvr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gsvr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toList());
 		this.operator[0] = genotypePatternToQueryMap.get(gsvr.getGtPattern());
 		this.mostSameRatio[0] = gsvr.getMostSameRatio();
 		this.annotationFieldThresholds[0] = gsvr.getAnnotationFieldThresholds();
@@ -246,7 +248,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 		LOG.debug("Filtering genotypes on " + filteredGroups.size() + " groups");
 		if (filteredGroups.contains(1))
 		{
-			this.selectedIndividuals[1] = gsvr.getCallSetIds2().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gsvr.getCallSetIds2();
+			this.selectedIndividuals[1] = gsvr.getCallSetIds2().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gsvr.getCallSetIds2().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toList());
 			this.operator[1] = genotypePatternToQueryMap.get(gsvr.getGtPattern2());
 			this.mostSameRatio[1] = gsvr.getMostSameRatio2();
 			this.annotationFieldThresholds[1] = gsvr.getAnnotationFieldThresholds2();
