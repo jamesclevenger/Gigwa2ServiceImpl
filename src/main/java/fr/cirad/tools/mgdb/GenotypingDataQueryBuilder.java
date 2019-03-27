@@ -629,7 +629,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 			if (fMissingDataApplied[g])
 				finalMatchList.add(new BasicDBObject("r.m" + g, new BasicDBObject("$lte", selectedIndividuals[g].size() * missingData[g] / 100)));
 				
-			if (fMissingDataApplied[g] || fMafApplied[g] || fCompareBetweenGenotypes[g] || fIsWithoutAbnormalHeterozygosityQuery[g] || fMostSameSelected)
+			if (fZygosityRegex[g] || fMissingDataApplied[g] || fMafApplied[g] || fCompareBetweenGenotypes[g] || fIsWithoutAbnormalHeterozygosityQuery[g] || fMostSameSelected)
 	        {	// we need to calculate extra fields via an additional $let operator
 	            // keep previously computed fields
 	            if (fMissingDataApplied[g] || (fCompareBetweenGenotypes[g] && !fMostSameSelected))
@@ -681,17 +681,17 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 					BasicDBObject filter = new BasicDBObject("input", "$$d" + g);
 					filter.put("as", "gt");
 					filter.put("cond", new BasicDBObject("$eq", Arrays.asList("$$gt", "0/1")));
-	            	subIn.put("hz", new BasicDBObject("$size", new BasicDBObject("$filter", filter)));
+	            	subIn.put("hz" + g, new BasicDBObject("$size", new BasicDBObject("$filter", filter)));
 	            	
 	            	filter = new BasicDBObject("input", "$$d" + g);
 					filter.put("as", "gt");
 					filter.put("cond", new BasicDBObject("$eq", Arrays.asList("$$gt", "0/0")));
-	            	subIn.put("hr", new BasicDBObject("$size", new BasicDBObject("$filter", filter)));
+	            	subIn.put("hr" + g, new BasicDBObject("$size", new BasicDBObject("$filter", filter)));
 					
 	            	filter = new BasicDBObject("input", "$$d" + g);
 					filter.put("as", "gt");
 					filter.put("cond", new BasicDBObject("$eq", Arrays.asList("$$gt", "1/1")));
-	            	subIn.put("hv", new BasicDBObject("$size", new BasicDBObject("$filter", filter)));
+	            	subIn.put("hv" + g, new BasicDBObject("$size", new BasicDBObject("$filter", filter)));
 	            }
 	        }
 
@@ -746,9 +746,10 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 					else if (fIsWithoutAbnormalHeterozygosityQuery[g])
 	                {	// only for bi-allelic, diploid data: query that requires every allele present in heterozygous genotypes to be also present in homozygous ones
 	                    BasicDBList orList = new BasicDBList();
-	                    orList.add(new BasicDBObject("r.hz", new BasicDBObject("$eq", 0)));
+	                    orList.add(new BasicDBObject("r.hz" + g, new BasicDBObject("$eq", 0)));
 	                    BasicDBList andList = new BasicDBList();
-	                    andList.add(new BasicDBObject("r.hv", new BasicDBObject("$gt", 0)));
+	                    andList.add(new BasicDBObject("r.hv" + g, new BasicDBObject("$gt", 0)));
+	                    andList.add(new BasicDBObject("r.hr" + g, new BasicDBObject("$gt", 0)));
 	                    orList.add(new BasicDBObject("$and", andList));
 	                    finalMatchList.add(new BasicDBObject("$or", orList));
 	                }
