@@ -114,6 +114,7 @@ import fr.cirad.mgdb.exporting.individualoriented.AbstractIndividualOrientedExpo
 import fr.cirad.mgdb.exporting.markeroriented.AbstractMarkerOrientedExportHandler;
 import fr.cirad.mgdb.importing.SequenceImport;
 import fr.cirad.mgdb.importing.VcfImport;
+import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
@@ -460,7 +461,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         String queryKey = getQueryKey(gsvr);
 
         final MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
-        DBCollection cachedCountCollection = mongoTemplate.getCollection(MgdbDao.COLLECTION_NAME_CACHED_COUNTS);
+        DBCollection cachedCountCollection = mongoTemplate.getCollection(mongoTemplate.getCollectionName(CachedCount.class));
 //			cachedCountCollection.drop();
         DBCursor countCursor = cachedCountCollection.find(new BasicDBObject("_id", queryKey));
         Long count = null;
@@ -757,7 +758,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         final DBCollection tmpVarColl = getTemporaryVariantCollection(sModule, progress.getProcessId(), true);
         
         final MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
-        DBCollection cachedCountCollection = mongoTemplate.getCollection(MgdbDao.COLLECTION_NAME_CACHED_COUNTS);
+        DBCollection cachedCountCollection = mongoTemplate.getCollection(mongoTemplate.getCollectionName(CachedCount.class));
         DBCursor countCursor = cachedCountCollection.find(new BasicDBObject("_id", queryKey));
 
         final Object[] partialCountArray = !countCursor.hasNext() ? null : ((BasicDBList) countCursor.next().get(MgdbDao.FIELD_NAME_CACHED_COUNT_VALUE)).toArray();
