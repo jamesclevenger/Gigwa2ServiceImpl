@@ -989,7 +989,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         String info[] = GigwaSearchVariantsRequest.getInfoFromId(gsver.getVariantSetId(), 2);
         String sModule = info[0];
         int projId = Integer.parseInt(info[1]);
-        
+
         long before = System.currentTimeMillis();
         final MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
     	int nGroupsToFilterGenotypingDataOn = GenotypingDataQueryBuilder.getGroupsForWhichToFilterOnGenotypingOrAnnotationData(gsver).size();
@@ -999,12 +999,12 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		Collection<String> individualsToExport = gsver.getExportedIndividuals();
 		if (individualsToExport.size() == 0)
 			individualsToExport = MgdbDao.getProjectIndividuals(sModule, projId);
-        
+
         long count = countVariants(gsver, true);
         DBCollection tmpVarColl = getTemporaryVariantCollection(sModule, token, false);
         long nTempVarCount = mongoTemplate.count(new Query(), tmpVarColl.getName());
         final BasicDBList variantQueryDBList = (BasicDBList) buildVariantDataQuery(gsver, getSequenceIDsBeingFilteredOn(gsver.getRequest().getSession(), sModule));
-		
+
 		if (nGroupsToFilterGenotypingDataOn > 0 && nTempVarCount == 0)
 		{
 			progress.setError(MESSAGE_TEMP_RECORDS_NOT_FOUND);
@@ -1022,17 +1022,27 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
         String mainVarCollName = mongoTemplate.getCollectionName(VariantData.class), usedVarCollName = nTempVarCount == 0 ? mainVarCollName : tmpVarColl.getName();
         DBCollection usedVarColl = mongoTemplate.getCollection(usedVarCollName);
-        
         BasicDBObject variantQuery = nTempVarCount == 0 && !variantQueryDBList.isEmpty() ? new BasicDBObject("$and", variantQueryDBList) : null;
         if (gsver.shallApplyMatrixSizeLimit())
     	{	// make sure the matrix is not too big
         	int nMaxBillionGenotypesInvolved = 1;	// default
-        	try
-        	{
-        		nMaxBillionGenotypesInvolved = Integer.parseInt(appConfig.get("maxExportableBillionGenotypes"));
+        	try {
+                Authentication auth = tokenManager.getAuthenticationFromToken(tokenManager.readToken(gsver.getRequest()));
+        		nMaxBillionGenotypesInvolved = Integer.parseInt(appConfig.get("maxExportableBillionGenotypes_" + (auth == null ? "anonymousUser" : auth.getName())));
         	}
-        	catch (Exception ignored)
-        	{}
+        	catch (Exception ignored1) {
+               	try {
+            		nMaxBillionGenotypesInvolved = Integer.parseInt(appConfig.get("maxExportableBillionGenotypes"));
+            	}
+            	catch (Exception ignored2)
+            	{}
+        	}
+        	
+        	if (nMaxBillionGenotypesInvolved == 0)
+        	{
+	            progress.setError("You are not allowed to export any genotyping data.");
+	            return;
+        	}
         	
         	BigInteger matrixSize = BigInteger.valueOf(usedVarColl.count(variantQuery)).multiply(BigInteger.valueOf(individualsToExport.size()));
         	BigInteger maxAllowedSize = BigInteger.valueOf(1000000000).multiply(BigInteger.valueOf(nMaxBillionGenotypesInvolved));
@@ -1084,12 +1094,12 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             Map<String, InputStream> readyToExportFiles = new HashMap<>();
             String sCitingText = appConfig.get("howToCite");
             if (sCitingText == null)
-            	sCitingText = "Please cite Gigwa as follows:\nSempéré G, Philippe F, Dereeper A, Ruiz M, Sarah G, Larmande P. Gigwa-Genotype investigator for genome-wide analyses.\nGigascience [Internet] 2016;5:25. doi: 10.1186/s13742-016-0131-8.";
+            	sCitingText = "Please cite Gigwa as follows:\nGuilhem Sempéré, Adrien Pétel, Mathieu Rouard, Julien Frouin, Yann Hueber, Fabien De Bellis, Pierre Larmande,\nGigwa v2—Extended and improved genotype investigator, GigaScience, Volume 8, Issue 5, May 2019, giz051, https://doi.org/10.1093/gigascience/giz051";
             String projDesc = project.getDescription();
             if (projDesc != null && projDesc.contains("HOW TO CITE"))
             	sCitingText += (sCitingText.length() > 0 ? "\n\n" : "") + "Please cite project data as follows:\n" + projDesc.substring(projDesc.indexOf("HOW TO CITE") + 11).replaceAll("\n\n*", "\n").trim();
             if (sCitingText.length() > 0)
-            	readyToExportFiles.put("HOW_TO_CITE.txt", new ByteArrayInputStream(sCitingText.getBytes()));
+            	readyToExportFiles.put("HOW_TO_CITE.txt", new ByteArrayInputStream(sCitingText.getBytes("UTF-8")));
 
             final OutputStream finalOS = os;
 			ArrayList<GenotypingSample> samplesToExport = MgdbDao.getSamplesForProject(sModule, projId, individualsToExport);
