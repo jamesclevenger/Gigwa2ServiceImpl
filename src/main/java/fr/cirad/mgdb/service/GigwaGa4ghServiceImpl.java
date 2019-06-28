@@ -115,6 +115,8 @@ import fr.cirad.mgdb.exporting.markeroriented.AbstractMarkerOrientedExportHandle
 import fr.cirad.mgdb.importing.SequenceImport;
 import fr.cirad.mgdb.importing.VcfImport;
 import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
+import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata;
+import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata.CustomIndividualMetadataId;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
@@ -514,7 +516,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 List<ServerAddress> mongoServerList = mongoTemplate.getDb().getMongo().getServerAddressList();
                 boolean fMongoOnSameServer = mongoServerList.size() == 1 && Arrays.asList("127.0.0.1", "localhost").contains(mongoServerList.get(0).getHost());
                 if (variantQueryDBList.size() > 0)
-                {	// the Mongo server is a single server and is hosted locally (only case where pre-filtering may be worth, otherwise using $in is inefficient)
+                {
                 	Number avgObjSize = (Number) mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).getStats().get("avgObjSize");
                     if (avgObjSize.doubleValue() >= 10240)
                     {	// it may be worth pre-filtering data on variant collection because filtering speed on the run collection is affected by the document size
@@ -543,10 +545,12 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                         final List<DBObject> genotypingDataPipeline = genotypingDataQueryBuilder.next();
 
                         final int chunkIndex = shuffledChunkIndexes.get(++i);
+                        
+                        boolean fMultiProjectDB = false;
 
                         BasicDBObject initialMatch = (BasicDBObject) genotypingDataPipeline.get(0).get("$match");
                         if (initialMatch != null && fPreFilterOnVarColl)
-                        {
+                        {	// modifiedMatchAnd will be the one applied to variants collection when pre-filtering
                         	BasicDBList modifiedMatchAnd = (BasicDBList) ((BasicDBList) initialMatch.get("$and")).clone();
                         	if (modifiedMatchAnd != null)
                         	{
@@ -559,13 +563,18 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                         				toAdd.add(new BasicDBObject("_id", variantIdFilter));
                         				toRemove.add((DBObject) filter);
                         			}
+                        			else if (null != ((DBObject) filter).get("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID)) {
+                        				toRemove.add((DBObject) filter);	// no project info to filter on in the variants collection
+	                    				fMultiProjectDB = true;
+	                    			}
+
                         		}
                         		modifiedMatchAnd.addAll(toAdd);
                         		modifiedMatchAnd.removeAll(toRemove);
                         	}
 
                         	if (fMongoOnSameServer)
-                        	{
+                        	{	// always worth pre-filtering
                                 DBCursor variantCursor = varColl.find(new BasicDBObject("$and", modifiedMatchAnd), new BasicDBObject("_id", 1));
                                 List<Comparable> chunkPreFilteredIDs = new ArrayList<>();
                                 while (variantCursor.hasNext())
@@ -580,12 +589,13 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                                 }
                                 else
                                 {	// DB server is the same machine as web server: $in operator will not be expensive
-        	                        genotypingDataPipeline.remove(0);
+                                	if (!fMultiProjectDB)	// for single project dbs, $in is equivalent to original query, otherwise only a pre-filter
+                                		genotypingDataPipeline.remove(0);
         	                        genotypingDataPipeline.add(0, new BasicDBObject("$match", new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, new BasicDBObject("$in", chunkPreFilteredIDs))));
                                 }
                         	}
                         	else
-                        	{
+                        	{	// only try and use pre-filtering to avoid executing genotyping data queries on irrelevant chunks
                                 if (varColl.count(new BasicDBObject("$and", modifiedMatchAnd)) == 0)
                                 {	// no variants match indexed part of the query: skip chunk
                                 	partialCountArray[chunkIndex] = 0l;
@@ -809,7 +819,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 List<ServerAddress> mongoServerList = mongoTemplate.getDb().getMongo().getServerAddressList();
                 boolean fMongoOnSameServer = mongoServerList.size() == 1 && Arrays.asList("127.0.0.1", "localhost").contains(mongoServerList.get(0).getHost());
                 if (variantQueryDBList.size() > 0)
-                {	// the Mongo server is a single server and is hosted locally (only case where pre-filtering may be worth, otherwise using $in is inefficient)
+                {
                 	Number avgObjSize = (Number) mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).getStats().get("avgObjSize");
                     if (avgObjSize.doubleValue() >= 10240)
                     {	// it may be worth pre-filtering data on variant collection because filtering speed on the run collection is affected by the document size
@@ -832,6 +842,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     final int chunkIndex = shuffledChunkIndexes.get(++i);                    
                     if (partialCountMap.size() > 0 && !partialCountMap.containsKey(chunkIndex))
                         continue;
+                    
+                    boolean fMultiProjectDB = false;
 
                     BasicDBObject initialMatch = (BasicDBObject) genotypingDataPipeline.get(0).get("$match");
                     if (initialMatch != null && fPreFilterOnVarColl)
@@ -848,13 +860,17 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     				toAdd.add(new BasicDBObject("_id", variantIdFilter));
                     				toRemove.add((DBObject) filter);
                     			}
+                    			else if (null != ((DBObject) filter).get("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID)) {
+                    				toRemove.add((DBObject) filter);	// no project info to filter on in the variants collection
+                    				fMultiProjectDB = true;
+                    			}
                     		}
                     		modifiedMatchAnd.addAll(toAdd);
                     		modifiedMatchAnd.removeAll(toRemove);
                     	}
 
                     	if (fMongoOnSameServer)
-                    	{
+                    	{	// always worth pre-filtering
                             DBCursor variantCursor = varColl.find(new BasicDBObject("$and", modifiedMatchAnd), new BasicDBObject("_id", 1));
                             List<Comparable> chunkPreFilteredIDs = new ArrayList<>();
                             while (variantCursor.hasNext())
@@ -870,12 +886,13 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                             }
                             else
                             {	// DB server is the same machine as web server: $in operator will not be expensive
-    	                        genotypingDataPipeline.remove(0);
+                            	if (!fMultiProjectDB)	// for single project dbs, $in is equivalent to original query, otherwise only a pre-filter
+                            		genotypingDataPipeline.remove(0);
     	                        genotypingDataPipeline.add(0, new BasicDBObject("$match", new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, new BasicDBObject("$in", chunkPreFilteredIDs))));
                             }
                     	}
                     	else
-                    	{
+                    	{	// only try and use pre-filtering to avoid executing genotyping data queries on irrelevant chunks
                             if (varColl.count(new BasicDBObject("$and", modifiedMatchAnd)) == 0)
                             {	// no variants match indexed part of the query: skip chunk
 	                            if (partialCountArrayToFill != null)
@@ -2365,6 +2382,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	public SearchCallSetsResponse searchCallSets(SearchCallSetsRequest scsr) throws AvroRemoteException, GAException {
 		SearchCallSetsResponse response = null;
 
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    	String sCurrentUser = auth == null || "anonymousUser".equals(auth.getName()) ? "anonymousUser" : auth.getName();
+    	
 		// get information from id
 		String[] info = GigwaSearchVariantsRequest.getInfoFromId(scsr.getVariantSetId(), 2);
 		if (info == null) {
@@ -2387,6 +2407,21 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			List<String> indIDs = mongoTemplate.getCollection(mongoTemplate.getCollectionName(GenotypingSample.class)).distinct(GenotypingSample.FIELDNAME_INDIVIDUAL, new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(Integer.parseInt(info[1]))).getQueryObject());
 			List<Individual> listInd = mongoTemplate.find(new Query(Criteria.where("_id").in(indIDs)), Individual.class);
 			Collections.sort(listInd, new AlphaNumericComparator());
+
+			Query q = new Query(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser));
+			List<CustomIndividualMetadata> cimdList = mongoTemplate.find(q, CustomIndividualMetadata.class);
+			if(!cimdList.isEmpty()) {
+				HashMap<String /* indivID */, HashMap<String, Comparable> /* additional info */> metadataByIdMap = new HashMap<>();
+				for (CustomIndividualMetadata cimd : cimdList)
+					metadataByIdMap.put(cimd.getId().getIndividualId(), cimd.getAdditionalInfo());
+				
+				for( int i=0 ; i<listInd.size(); i++) {
+					String indId = listInd.get(i).getId();
+					HashMap<String, Comparable>  ai = metadataByIdMap.get(indId);
+	                if(ai != null && !ai.isEmpty())
+	                	listInd.get(i).getAdditionalInfo().putAll(ai);
+				}
+			}
 
 			List<CallSet> listCallSet = new ArrayList<>();
 
