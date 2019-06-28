@@ -946,7 +946,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
         List<Integer> result = getGroupsForWhichToFilterOnGenotypingData(gsvr);
     	
     	if (result.size() == 0 && (MongoTemplateManager.get(GigwaSearchVariantsRequest.getInfoFromId(gsvr.getVariantSetId(), 2)[0]).count(null, GenotypingProject.class) != 1 || gsvr.getGeneName().length() > 0 || gsvr.getVariantEffect().length() > 0))
-    		result.add(0);	// needed at least for filtering on annotation data
+    		result.add(0);	// needed at least for filtering on annotation data or distinguish records according to project id
 
     	return result;
     }
