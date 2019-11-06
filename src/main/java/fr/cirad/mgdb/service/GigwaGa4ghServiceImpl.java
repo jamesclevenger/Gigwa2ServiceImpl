@@ -445,8 +445,10 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         String info[] = GigwaSearchVariantsRequest.getInfoFromId(gsvr.getVariantSetId(), 2);
         String sModule = info[0];
         int projId = Integer.parseInt(info[1]);
-        String token = tokenManager.readToken(gsvr.getRequest());
-        
+
+        boolean fGotTokenManager = tokenManager != null;	// if null, we are probably being invoked via unit-test
+        String token = !fGotTokenManager ? Helper.convertToMD5(String.valueOf(System.currentTimeMillis())) /* create a mock up token */ : tokenManager.readToken(gsvr.getRequest());
+
         ProgressIndicator progress = ProgressIndicator.get(token);
         if (progress == null) {
             progress = new ProgressIndicator(token, new String[0]);
@@ -459,7 +461,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             return 0;
     	}
 
-        DBCollection tmpVarColl = getTemporaryVariantCollection(sModule, progress.getProcessId(), !fSelectionAlreadyExists);
+        DBCollection tmpVarColl = getTemporaryVariantCollection(sModule, progress.getProcessId(), fGotTokenManager && !fSelectionAlreadyExists);
         String queryKey = getQueryKey(gsvr);
 
         final MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
@@ -666,8 +668,11 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             LOG.info("countVariants found " + count + " results in " + (System.currentTimeMillis() - before) / 1000d + "s");
         }
         
-        if (!fSelectionAlreadyExists)
-        	progress.markAsComplete();
+        if (!fGotTokenManager)
+        	tmpVarColl.drop();	// we are probably being invoked via unit-test
+        else
+	        if (!fSelectionAlreadyExists)
+	        	progress.markAsComplete();
         if (progress.isAborted()) {
             return 0l;
         }
