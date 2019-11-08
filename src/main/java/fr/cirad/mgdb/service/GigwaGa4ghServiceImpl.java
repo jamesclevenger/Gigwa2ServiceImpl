@@ -429,7 +429,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
        	q.addCriteria(Criteria.where("_id").is(projId));
         GenotypingProject proj = mongoTemplate.findOne(q, GenotypingProject.class);
         
-    	int nSelectedSeqCount = gsvr.getReferenceName().length() == 0 ? proj.getSequences().size() : gsvr.getReferenceName().split(";").length;
+    	int nSelectedSeqCount = gsvr.getReferenceName() == null || gsvr.getReferenceName().length() == 0 ? proj.getSequences().size() : gsvr.getReferenceName().split(";").length;
     	if (nSelectedSeqCount == 1)
     		return null;	// we can't expect user to select less than a single sequence
 
