@@ -221,6 +221,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
     
 	public boolean isAggregationAllowedToUseDisk() {
+		if (appConfig==null) { //We are probably in unit test case
+			return true;
+		}
 		if (fAllowDiskUse == null)
 			fAllowDiskUse = !Boolean.parseBoolean(appConfig.get("forbidMongoDiskUse"));
 		return fAllowDiskUse.booleanValue();
@@ -497,7 +500,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
             DBCollection varColl = mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class));
             List<Integer> filteredGroups = GenotypingDataQueryBuilder.getGroupsForWhichToFilterOnGenotypingOrAnnotationData(gsvr);
-            BasicDBList variantQueryDBList = (BasicDBList) buildVariantDataQuery(gsvr, getSequenceIDsBeingFilteredOn(gsvr.getRequest().getSession(), sModule));
+            BasicDBList variantQueryDBList = (BasicDBList) buildVariantDataQuery(gsvr, !fGotTokenManager ? null : getSequenceIDsBeingFilteredOn(gsvr.getRequest().getSession(), sModule));
                             
             if (variantQueryDBList.isEmpty()) {
                 if (filteredGroups.size() == 0 && mongoTemplate.count(null, GenotypingProject.class) == 1)
@@ -668,11 +671,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             LOG.info("countVariants found " + count + " results in " + (System.currentTimeMillis() - before) / 1000d + "s");
         }
         
-        if (!fGotTokenManager)
-        	tmpVarColl.drop();	// we are probably being invoked via unit-test
-        else
-	        if (!fSelectionAlreadyExists)
-	        	progress.markAsComplete();
+	if (!fSelectionAlreadyExists)
+	    progress.markAsComplete();
         if (progress.isAborted()) {
             return 0l;
         }
