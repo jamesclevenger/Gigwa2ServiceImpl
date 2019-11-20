@@ -90,6 +90,7 @@ import org.ga4gh.models.VariantAnnotation;
 import org.ga4gh.models.VariantSet;
 import org.ga4gh.models.VariantSetMetadata;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -1913,7 +1914,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
      * @param param
      * @return String the id
      */
-    private String createId(Comparable... params) {
+    public String createId(Comparable... params) {
         String result = "";
 
         for (Comparable val : params) {
@@ -2409,20 +2410,26 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			listVariantSetId.add(scsr.getVariantSetId());
 
 			// build the list of individuals
-			List<String> indIDs = mongoTemplate.getCollection(mongoTemplate.getCollectionName(GenotypingSample.class)).distinct(GenotypingSample.FIELDNAME_INDIVIDUAL, new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(Integer.parseInt(info[1]))).getQueryObject());
-			List<Individual> listInd = mongoTemplate.find(new Query(Criteria.where("_id").in(indIDs)), Individual.class);
-			Collections.sort(listInd, new AlphaNumericComparator());
+			Query q = new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(Integer.parseInt(info[1])));
+			q.fields().include(GenotypingSample.FIELDNAME_INDIVIDUAL);
+			
+			Map<String, Integer> indIdToSampleIdMap = new HashMap<>();
+			for (GenotypingSample sample : mongoTemplate.find(q, GenotypingSample.class))
+				indIdToSampleIdMap.put(sample.getIndividual(), sample.getId());
 
-			Query q = new Query(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser));
+			q = new Query(Criteria.where("_id").in(indIdToSampleIdMap.keySet()));
+			q.with(new Sort(Sort.Direction.ASC, "_id"));
+			List<Individual> listInd = mongoTemplate.find(q, Individual.class);
+			q = new Query(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser));
 			List<CustomIndividualMetadata> cimdList = mongoTemplate.find(q, CustomIndividualMetadata.class);
 			if(!cimdList.isEmpty()) {
-				HashMap<String /* indivID */, HashMap<String, Comparable> /* additional info */> metadataByIdMap = new HashMap<>();
+				HashMap<String /* indivID */, HashMap<String, Comparable> /* additional info */> indMetadataByIdMap = new HashMap<>();
 				for (CustomIndividualMetadata cimd : cimdList)
-					metadataByIdMap.put(cimd.getId().getIndividualId(), cimd.getAdditionalInfo());
+					indMetadataByIdMap.put(cimd.getId().getIndividualId(), cimd.getAdditionalInfo());
 				
 				for( int i=0 ; i<listInd.size(); i++) {
 					String indId = listInd.get(i).getId();
-					HashMap<String, Comparable>  ai = metadataByIdMap.get(indId);
+					HashMap<String, Comparable>  ai = indMetadataByIdMap.get(indId);
 	                if(ai != null && !ai.isEmpty())
 	                	listInd.get(i).getAdditionalInfo().putAll(ai);
 				}
@@ -2447,13 +2454,13 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 				nextPageToken = null;
 			} else {
 				end = pageSize * (pageToken + 1);
-				nextPageToken = Integer.toString(pageToken);
+				nextPageToken = Integer.toString(pageToken + 1);
 			}
 
 			// create a callSet for each item in the list
 			for (int i = start; i < end; i++) {
 				final Individual ind = listInd.get(i);
-				CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(listVariantSetId).setSampleId(null);
+				CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(listVariantSetId).setSampleId(createId(module, info[1], ind.getId(), indIdToSampleIdMap.get(ind.getId())));
 				if (!ind.getAdditionalInfo().isEmpty())
 					csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()))));
 				callSet = csb.build();
@@ -2497,7 +2504,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             nextPageToken = null;
         } else {
         	end = pageSize * (pageToken + 1);
-            nextPageToken = Integer.toString(pageToken);
+            nextPageToken = Integer.toString(pageToken + 1);
         }
 
         // add a Reference Set for each existing module 
@@ -2561,7 +2568,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 nextPageToken = null;
             } else {
             	end = pageSize * (pageToken + 1);
-                nextPageToken = Integer.toString(pageToken);
+                nextPageToken = Integer.toString(pageToken + 1);
             }
 
             for (int i = start; i < end; i++) {
@@ -2758,7 +2765,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 nextPageToken = null;
             } else {
             	end = pageSize * (pageToken + 1);
-                nextPageToken = Integer.toString(pageToken);
+                nextPageToken = Integer.toString(pageToken + 1);
             }
             ArrayList<DBObject> pipeline = new ArrayList<>();
             pipeline.add(new BasicDBObject("$match", new BasicDBObject("_id", new BasicDBObject("$in", mapSeq.keySet()))));
