@@ -2446,7 +2446,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 				end = size;
 				nextPageToken = null;
 			} else {
-				end = pageSize * pageToken;
+				end = pageSize * (pageToken + 1);
 				nextPageToken = Integer.toString(pageToken);
 			}
 
@@ -2496,7 +2496,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             end = size;
             nextPageToken = null;
         } else {
-            end = pageSize * pageToken;
+        	end = pageSize * (pageToken + 1);
             nextPageToken = Integer.toString(pageToken);
         }
 
@@ -2560,7 +2560,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 end = size;
                 nextPageToken = null;
             } else {
-                end = pageSize * pageToken;
+            	end = pageSize * (pageToken + 1);
                 nextPageToken = Integer.toString(pageToken);
             }
 
@@ -2757,7 +2757,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 end = size;
                 nextPageToken = null;
             } else {
-                end = pageSize * pageToken;
+            	end = pageSize * (pageToken + 1);
                 nextPageToken = Integer.toString(pageToken);
             }
             ArrayList<DBObject> pipeline = new ArrayList<>();
