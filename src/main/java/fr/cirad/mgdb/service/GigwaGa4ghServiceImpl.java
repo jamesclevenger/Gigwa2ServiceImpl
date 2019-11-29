@@ -2383,6 +2383,28 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		   result.setOffset(lrbr.getStart());
 		   return result;
     }
+    
+    /* needed to be able to pass totalCount to the BrAPI v2 call */
+    public class SearchCallSetsResponseWrapper extends SearchCallSetsResponse {
+    	private SearchCallSetsResponse scsr;    	
+    	private int totalCount;
+
+    	public SearchCallSetsResponseWrapper(SearchCallSetsResponse scsr) {
+    		this.scsr = scsr;
+    	}
+
+		public SearchCallSetsResponse getResponse() {
+			return scsr;
+		}
+
+		public int getTotalCount() {
+			return totalCount;
+		}
+
+		public void setTotalCount(int totalCount) {
+			this.totalCount = totalCount;
+		}
+    }
 
 	@Override
 	public SearchCallSetsResponse searchCallSets(SearchCallSetsRequest scsr) throws AvroRemoteException, GAException {
@@ -2393,82 +2415,90 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	
 		// get information from id
 		String[] info = GigwaSearchVariantsRequest.getInfoFromId(scsr.getVariantSetId(), 2);
-		if (info == null) {
-			// wrong number of param or wrong module name
-		} else {
-			CallSet callSet;
-			int start;
-			int end;
-			int pageSize;
-			int pageToken = 0;
-			String nextPageToken;
+		if (info == null)
+			return null;
 
-			String module = info[0];
-			MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
+		CallSet callSet;
+		int start;
+		int end;
+		int pageSize;
+		int pageToken = 0;
+		String nextPageToken;
 
-			List<String> listVariantSetId = new ArrayList<>();
-			listVariantSetId.add(scsr.getVariantSetId());
+		String module = info[0];
+		MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
 
-			// build the list of individuals
-			Query q = new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(Integer.parseInt(info[1])));
-			q.fields().include(GenotypingSample.FIELDNAME_INDIVIDUAL);
+		List<String> listVariantSetId = new ArrayList<>();
+		listVariantSetId.add(scsr.getVariantSetId());
+
+		// build the list of individuals
+		Query q = new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(Integer.parseInt(info[1])));
+		q.fields().include(GenotypingSample.FIELDNAME_INDIVIDUAL);
+		
+		Map<String, Integer> indIdToSampleIdMap = new HashMap<>();
+		for (GenotypingSample sample : mongoTemplate.find(q, GenotypingSample.class))
+			indIdToSampleIdMap.put(sample.getIndividual(), sample.getId());
+
+		q = new Query(Criteria.where("_id").in(indIdToSampleIdMap.keySet()));
+		q.with(new Sort(Sort.Direction.ASC, "_id"));
+		long totalCount = mongoTemplate.count(q, Individual.class);
+		List<Individual> listInd = mongoTemplate.find(q, Individual.class);
+		q = new Query(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser));
+		List<CustomIndividualMetadata> cimdList = mongoTemplate.find(q, CustomIndividualMetadata.class);
+		if(!cimdList.isEmpty()) {
+			HashMap<String /* indivID */, HashMap<String, Comparable> /* additional info */> indMetadataByIdMap = new HashMap<>();
+			for (CustomIndividualMetadata cimd : cimdList)
+				indMetadataByIdMap.put(cimd.getId().getIndividualId(), cimd.getAdditionalInfo());
 			
-			Map<String, Integer> indIdToSampleIdMap = new HashMap<>();
-			for (GenotypingSample sample : mongoTemplate.find(q, GenotypingSample.class))
-				indIdToSampleIdMap.put(sample.getIndividual(), sample.getId());
-
-			q = new Query(Criteria.where("_id").in(indIdToSampleIdMap.keySet()));
-			q.with(new Sort(Sort.Direction.ASC, "_id"));
-			List<Individual> listInd = mongoTemplate.find(q, Individual.class);
-			q = new Query(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser));
-			List<CustomIndividualMetadata> cimdList = mongoTemplate.find(q, CustomIndividualMetadata.class);
-			if(!cimdList.isEmpty()) {
-				HashMap<String /* indivID */, HashMap<String, Comparable> /* additional info */> indMetadataByIdMap = new HashMap<>();
-				for (CustomIndividualMetadata cimd : cimdList)
-					indMetadataByIdMap.put(cimd.getId().getIndividualId(), cimd.getAdditionalInfo());
-				
-				for( int i=0 ; i<listInd.size(); i++) {
-					String indId = listInd.get(i).getId();
-					HashMap<String, Comparable>  ai = indMetadataByIdMap.get(indId);
-	                if(ai != null && !ai.isEmpty())
-	                	listInd.get(i).getAdditionalInfo().putAll(ai);
-				}
+			for( int i=0 ; i<listInd.size(); i++) {
+				String indId = listInd.get(i).getId();
+				HashMap<String, Comparable>  ai = indMetadataByIdMap.get(indId);
+                if(ai != null && !ai.isEmpty())
+                	listInd.get(i).getAdditionalInfo().putAll(ai);
 			}
-
-			List<CallSet> listCallSet = new ArrayList<>();
-
-			int size = listInd.size();
-			// if no pageSize specified, return all results
-			if (scsr.getPageSize() != null) {
-				pageSize = scsr.getPageSize();
-			} else {
-				pageSize = size;
-			}
-			if (scsr.getPageToken() != null) {
-				pageToken = Integer.parseInt(scsr.getPageToken());
-			}
-
-			start = pageSize * pageToken;
-			if (size - start <= pageSize) {
-				end = size;
-				nextPageToken = null;
-			} else {
-				end = pageSize * (pageToken + 1);
-				nextPageToken = Integer.toString(pageToken + 1);
-			}
-
-			// create a callSet for each item in the list
-			for (int i = start; i < end; i++) {
-				final Individual ind = listInd.get(i);
-				CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(listVariantSetId).setSampleId(createId(module, info[1], ind.getId(), indIdToSampleIdMap.get(ind.getId())));
-				if (!ind.getAdditionalInfo().isEmpty())
-					csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()))));
-				callSet = csb.build();
-				listCallSet.add(callSet);
-			}
-			response = SearchCallSetsResponse.newBuilder().setCallSets(listCallSet).setNextPageToken(nextPageToken).build();
 		}
-		return response;
+
+		List<CallSet> listCallSet = new ArrayList<>();
+
+		int size = listInd.size();
+		// if no pageSize specified, return all results
+		if (scsr.getPageSize() != null) {
+			pageSize = scsr.getPageSize();
+		} else {
+			pageSize = size;
+		}
+		if (scsr.getPageToken() != null) {
+			pageToken = Integer.parseInt(scsr.getPageToken());
+		}
+
+		start = pageSize * pageToken;
+		if (size - start <= pageSize) {
+			end = size;
+			nextPageToken = null;
+		} else {
+			end = pageSize * (pageToken + 1);
+			nextPageToken = Integer.toString(pageToken + 1);
+		}
+
+		// create a callSet for each item in the list
+		for (int i = start; i < end; i++) {
+			final Individual ind = listInd.get(i);
+			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(listVariantSetId).setSampleId(createId(module, info[1], ind.getId(), indIdToSampleIdMap.get(ind.getId())));
+			if (!ind.getAdditionalInfo().isEmpty())
+				csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()))));
+			callSet = csb.build();
+			listCallSet.add(callSet);
+		}
+		response = SearchCallSetsResponse.newBuilder().setCallSets(listCallSet).setNextPageToken(nextPageToken).build();
+		
+		if (!Thread.currentThread().getStackTrace()[2].getClassName().toLowerCase().contains("brapi"))
+			return response;
+	
+		SearchCallSetsResponseWrapper wrapper = new SearchCallSetsResponseWrapper(response);
+		wrapper.setTotalCount((int) totalCount);
+		wrapper.setCallSets(response.getCallSets());	// so this remains compatible with ga4gh
+		wrapper.setNextPageToken(response.getNextPageToken());	// so this remains compatible with ga4gh
+		return wrapper;
 	}
 	
     @Override
@@ -2534,69 +2564,69 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         SearchVariantSetsResponse response = null;
 
         String[] info = GigwaSearchVariantsRequest.getInfoFromId(svsr.getDatasetId(), 1);
-        if (info == null) {
-            // wrong number of param or wrong module name 
+        if (info == null)
+        	return null;
+
+        String module = info[0];
+        int start;
+        int end;
+        int pageSize;
+        int pageToken = 0;
+
+        String nextPageToken;
+
+        Query q = new Query();
+        q.fields().include(GenotypingProject.FIELDNAME_NAME);
+        q.fields().include(GenotypingProject.FIELDNAME_DESCRIPTION);
+        List<GenotypingProject> listProj = MongoTemplateManager.get(module).find(q, GenotypingProject.class);
+        List<VariantSet> listVariantSet = new ArrayList<>();
+
+        int size = listProj.size();
+        // if page size is not specified, return all results
+        if (svsr.getPageSize() != null) {
+            pageSize = svsr.getPageSize();
         } else {
-            String module = info[0];
-            int start;
-            int end;
-            int pageSize;
-            int pageToken = 0;
-
-            String nextPageToken;
-
-            Query q = new Query();
-            q.fields().include(GenotypingProject.FIELDNAME_NAME);
-            q.fields().include(GenotypingProject.FIELDNAME_DESCRIPTION);
-            List<GenotypingProject> listProj = MongoTemplateManager.get(module).find(q, GenotypingProject.class);
-            List<VariantSet> listVariantSet = new ArrayList<>();
-
-            int size = listProj.size();
-            // if page size is not specified, return all results
-            if (svsr.getPageSize() != null) {
-                pageSize = svsr.getPageSize();
-            } else {
-                pageSize = size;
-            }
-            if (svsr.getPageToken() != null) {
-                pageToken = Integer.parseInt(svsr.getPageToken());
-            }
-
-            start = pageSize * pageToken;
-            if (size - start <= pageSize) {
-                end = size;
-                nextPageToken = null;
-            } else {
-            	end = pageSize * (pageToken + 1);
-                nextPageToken = Integer.toString(pageToken + 1);
-            }
-
-            for (int i = start; i < end; i++) {
-            	GenotypingProject proj = listProj.get(i);
-                String projId = Integer.toString(proj.getId());
-                List<VariantSetMetadata> metadata = getMetadataList(module, projId);
-                if (proj.getDescription() != null)
-                {
-                	VariantSetMetadata vsmd = new VariantSetMetadata();
-                	vsmd.setKey("description");
-                	vsmd.setValue(proj.getDescription());
-                	metadata.add(vsmd);
-                }
-                VariantSet variantSet = VariantSet.newBuilder()
-                        .setId(createId(module, projId))
-                        .setReferenceSetId(module)
-                        .setDatasetId(module)
-                        .setName(listProj.get(i).getName())
-                        .setMetadata(metadata) // get the metadata from vcf header
-                        .build();
-                listVariantSet.add(variantSet);
-            }
-            response = SearchVariantSetsResponse.newBuilder()
-                    .setVariantSets(listVariantSet)
-                    .setNextPageToken(nextPageToken)
-                    .build();
+            pageSize = size;
         }
-        return response;
+        if (svsr.getPageToken() != null) {
+            pageToken = Integer.parseInt(svsr.getPageToken());
+        }
+
+        start = pageSize * pageToken;
+        if (size - start <= pageSize) {
+            end = size;
+            nextPageToken = null;
+        } else {
+        	end = pageSize * (pageToken + 1);
+            nextPageToken = Integer.toString(pageToken + 1);
+        }
+
+        for (int i = start; i < end; i++) {
+        	GenotypingProject proj = listProj.get(i);
+            String projId = Integer.toString(proj.getId());
+            List<VariantSetMetadata> metadata = getMetadataList(module, projId);
+            if (proj.getDescription() != null)
+            {
+            	VariantSetMetadata vsmd = new VariantSetMetadata();
+            	vsmd.setKey("description");
+            	vsmd.setValue(proj.getDescription());
+            	metadata.add(vsmd);
+            }
+            VariantSet variantSet = VariantSet.newBuilder()
+                    .setId(createId(module, projId))
+                    .setReferenceSetId(module)
+                    .setDatasetId(module)
+                    .setName(listProj.get(i).getName())
+                    .setMetadata(metadata) // get the metadata from vcf header
+                    .build();
+            listVariantSet.add(variantSet);
+        }
+        response = SearchVariantSetsResponse.newBuilder()
+                .setVariantSets(listVariantSet)
+                .setNextPageToken(nextPageToken)
+                .build();
+
+		return response;
     }
 
     @Override
