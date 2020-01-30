@@ -295,9 +295,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public Collection<Integer> getDistinctAlleleCounts(String sModule) {
+    public Collection<Integer> getDistinctAlleleCounts(String sModule, Integer projId) {
         MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
-        return mongoTemplate.getCollection(MongoTemplateManager.getMongoCollectionName(GenotypingProject.class)).distinct(GenotypingProject.FIELDNAME_ALLELE_COUNTS);
+        return mongoTemplate.getCollection(MongoTemplateManager.getMongoCollectionName(GenotypingProject.class)).distinct(GenotypingProject.FIELDNAME_ALLELE_COUNTS, projId == null ? null : new BasicDBObject("_id", projId));
     }
 
     @Override
