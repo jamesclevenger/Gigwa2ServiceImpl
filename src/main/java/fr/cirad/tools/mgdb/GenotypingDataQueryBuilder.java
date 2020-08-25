@@ -490,8 +490,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	        int nMaxNumberOfAllelesForOneVariant = maxAlleleCount > 0 ? maxAlleleCount : genotypingProject.getAlleleCounts().last(), nPloidy = genotypingProject.getPloidyLevel();
 	        int nNumberOfPossibleGenotypes = (int) (nMaxNumberOfAllelesForOneVariant + MathUtils.factorial(nMaxNumberOfAllelesForOneVariant)/(MathUtils.factorial(nPloidy)*MathUtils.factorial(nMaxNumberOfAllelesForOneVariant-nPloidy)) + (missingData[g] != null && missingData[g] >= 100/selectedIndividuals[g].size() ? 1 : 0));
 
-	        /*	existingGenotypeCountList is calculated by subtracting the number of existing (and with high enough values
-	        	in annotation fields) genotypes from the total number of involved individuals. */
+	        /*	existingGenotypeCountList is calculated by subtracting the number of existing (and with high enough values in annotation fields) genotypes from the total number of involved individuals. */
             BasicDBList missingGenotypeCountList = new BasicDBList(), existingGenotypeCountList = new BasicDBList();
         	BasicDBList altAlleleCountList = new BasicDBList();
             BasicDBList distinctGenotypeList = new BasicDBList();
@@ -539,7 +538,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	                	altAlleleCountList.add(new BasicDBObject("$cmp",  new Object[] {fGotIndividualsWithMultipleSamples ? ("$$u" + g + "_" + j) : fullPathToGT, fGotIndividualsWithMultipleSamples ? new Object[] {sGenotypeToCompareWith} : sGenotypeToCompareWith}));
 	                }
 	
-	                if ((fMissingDataApplied[g] || fMafApplied[g] || (fCompareBetweenGenotypes[g]) && !fMostSameSelected))
+	                if ((fMissingDataApplied[g] || fMafApplied[g] || (fCompareBetweenGenotypes[g])))
 	                {	// count missing genotypes
 	                	if (fGotIndividualsWithMultipleSamples)
 	                		// a genotype is also considered missing if different samples for the same individual have different genotypes 
@@ -548,7 +547,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	                	{
 	          	          	/*	{"$cmp" : ["$sp.1.gt", null]} returns :
 	          	          			1 if gt exists and is not null,
-	          	          			0 if gt is null (because of annotation non-matched field threshold
+	          	          			0 if gt is null, typically because of non-matched annotation field (GQ, DP...) threshold
 	          	          			-1 if gt does not exist */
 	                		BasicDBObject missingGtCalculation = new BasicDBObject("$max", new Object[] {0, new BasicDBObject("$cmp", new Object[] {fullPathToGT, null})});
 	                		existingGenotypeCountList.add(missingGtCalculation);
@@ -632,7 +631,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 			if (fZygosityRegex[g] || fMissingDataApplied[g] || fMafApplied[g] || fCompareBetweenGenotypes[g] || fIsWithoutAbnormalHeterozygosityQuery[g] || fMostSameSelected)
 	        {	// we need to calculate extra fields via an additional $let operator
 	            // keep previously computed fields
-	            if (fMissingDataApplied[g] || (fCompareBetweenGenotypes[g] && !fMostSameSelected))
+	            if (fMissingDataApplied[g] || (fCompareBetweenGenotypes[g]))
 	            	subIn.put("m" + g, "$$m" + g);
 	            if (fZygosityRegex[g] || fMostSameSelected)
 	            	subIn.put("d" + g, "$$d" + g);
@@ -771,9 +770,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 		                subIn.put("c" + g, new BasicDBObject("$concatArrays", concatArrayListForMostSame));
 		                
 		                addFieldsVars.put("dgc" + g, new BasicDBObject("$max", "$r.c" + g));	// dominant genotype count
-		                Object minimumDominantGenotypeCount = mostSameRatio[g] * selectedIndividuals[g].size() / 100f;
-		                if (fMissingDataApplied[g])
-		                	minimumDominantGenotypeCount = new BasicDBObject("$multiply", Arrays.asList(new BasicDBObject("$subtract", new Object[] {selectedIndividuals[g].size(), "$r.m" + g}), mostSameRatio[g] / 100f));
+		                Object minimumDominantGenotypeCount = new BasicDBObject("$multiply", Arrays.asList(new BasicDBObject("$subtract", new Object[] {selectedIndividuals[g].size(), "$r.m" + g}), mostSameRatio[g] / 100f));
 		                addFieldsIn.put("ed" + g, new BasicDBObject("$gte", Arrays.asList("$$dgc" + g, minimumDominantGenotypeCount)));	// flag telling whether or not we have enough dominant genotypes to reach the required ratio
 		                if (fDiscriminate && g == 1)
 		                {
