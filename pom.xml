@@ -5,8 +5,8 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <endorsed.dir>${project.build.directory}/endorsed</endorsed.dir>
-        <project.version>2.3-RELEASE</project.version>
-        <mgdb.version>2.3-RELEASE</mgdb.version>
+        <project.version>2.4-snapshot</project.version>
+        <mgdb2.version>2.4-snapshot</mgdb2.version>
         <mgdb2_export.version>2.3-RELEASE</mgdb2_export.version>
     </properties>
 
@@ -25,7 +25,7 @@
         <dependency> 
             <groupId>fr.cirad</groupId>
             <artifactId>mgdb2</artifactId>
-            <version>${mgdb.version}</version>
+            <version>${mgdb2.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>commons-logging</groupId>
