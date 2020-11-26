@@ -674,7 +674,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 					else if (fMostSameSelected) {
 	                	BasicDBObject filter = new BasicDBObject("input", "$$gt" + g);
 	                	filter.put("as", "g");
-	                	filter.put("cond", new BasicDBObject("$eq", Arrays.asList("$$g", "$$d")));
+	                	filter.put("cond", new BasicDBObject("$eq", Arrays.asList("$$g", fGotIndividualsWithMultipleSamples ? Arrays.asList("$$d") : "$$d")));
 		                subIn.put("c" + g, new BasicDBObject("$map", new BasicDBObject("input", "$$d" + g).append("as", "d").append("in", new BasicDBObject("$size", new BasicDBObject("$filter", filter)))));
 		                
 		                addFieldsVars.put("dgc" + g, new BasicDBObject("$max", "$r.c" + g));	// dominant genotype count
