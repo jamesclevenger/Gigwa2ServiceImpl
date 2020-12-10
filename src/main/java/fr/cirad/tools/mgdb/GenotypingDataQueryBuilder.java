@@ -30,16 +30,17 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.math.util.MathUtils;
 import org.apache.log4j.Logger;
+import org.bson.Document;
 import org.bson.types.ObjectId;
-//import org.codehaus.jackson.map.ObjectMapper;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
-import com.mongodb.DBCollection;
 import com.mongodb.DBObject;
+import com.mongodb.client.MongoCollection;
 
 import fr.cirad.controller.GigwaMethods;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
@@ -58,7 +59,7 @@ import fr.cirad.tools.mongo.MongoTemplateManager;
 /**
  * The Class GenotypingDataQueryBuilder.
  */
-public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
+public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
 {
 	
 	/** The Constant LOG. */
@@ -122,9 +123,9 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 
 	private BasicDBList variantQueryDBList;
 
-	private BasicDBObject groupFields;
+	private Document groupFields;
 	
-	private BasicDBObject projectionFields;
+	private Document projectionFields;
 
 	/** The Constant AGGREGATION_QUERY_REGEX_APPLY_TO_ALL_IND_SUFFIX. */
 	static final public String AGGREGATION_QUERY_REGEX_APPLY_TO_ALL_IND_SUFFIX = "_ALL_"; // used to differentiate aggregation query with $and operator 
@@ -211,7 +212,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 		genotypePatternToQueryMap.put(GENOTYPE_CODE_LABEL_WITHOUT_ABNORMAL_HETEROZYGOSITY, GenotypingDataQueryBuilder.AGGREGATION_QUERY_WITHOUT_ABNORMAL_HETEROZYGOSITY);
 	}
 	
-	public GenotypingDataQueryBuilder(GigwaSearchVariantsRequest gsvr, DBCollection tempExportColl, BasicDBList variantQueryDBList, boolean fForCounting) throws Exception
+	public GenotypingDataQueryBuilder(GigwaSearchVariantsRequest gsvr, MongoCollection<Document> tempExportColl, BasicDBList variantQueryDBList, boolean fForCounting) throws Exception
 	{
 		this.variantQueryDBList = variantQueryDBList;
 		
@@ -257,11 +258,11 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 			fDiscriminate = gsvr.isDiscriminate();
 		}
 		
-		this.nTotalVariantCount = mongoTemplate.count(null, MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS) + 1;
+		this.nTotalVariantCount = Helper.estimDocCount(mongoTemplate, MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS) + 1;
 		if (this.nTotalVariantCount == 1)
 		{
 			MgdbDao.prepareDatabaseForSearches(mongoTemplate);	// list does not exist: create it
-			this.nTotalVariantCount = mongoTemplate.count(null, MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS) + 1;
+			this.nTotalVariantCount = Helper.estimDocCount(mongoTemplate,MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS) + 1;
 		}
 		this.taggedVariantList = mongoTemplate.findAll(Map.class, MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS);
 		
@@ -269,15 +270,15 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 		for (int i=0; i<=taggedVariantList.size(); i++)
 			intervalIndexList.add(i);
 		
-		this.groupFields = new BasicDBObject();
-		this.projectionFields = new BasicDBObject();
+		this.groupFields = new Document();
+		this.projectionFields = new Document();
 		if (!fForCounting)
 		{
-	        groupFields.put(VariantData.FIELDNAME_REFERENCE_POSITION + "¤" + ReferencePosition.FIELDNAME_SEQUENCE, new BasicDBObject("$first", "$" + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE));
-	        groupFields.put(VariantData.FIELDNAME_REFERENCE_POSITION + "¤" + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$first", "$" + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE));
-	        groupFields.put(VariantData.FIELDNAME_REFERENCE_POSITION + "¤" + ReferencePosition.FIELDNAME_END_SITE, new BasicDBObject("$first", "$" + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_END_SITE));
-	        groupFields.put(VariantData.FIELDNAME_TYPE, new BasicDBObject("$first", "$" + VariantData.FIELDNAME_TYPE));
-	        groupFields.put(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, new BasicDBObject("$first", "$" + VariantData.FIELDNAME_KNOWN_ALLELE_LIST));
+	        groupFields.put(VariantData.FIELDNAME_REFERENCE_POSITION + "¤" + ReferencePosition.FIELDNAME_SEQUENCE, new Document("$first", "$" + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE));
+	        groupFields.put(VariantData.FIELDNAME_REFERENCE_POSITION + "¤" + ReferencePosition.FIELDNAME_START_SITE, new Document("$first", "$" + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE));
+	        groupFields.put(VariantData.FIELDNAME_REFERENCE_POSITION + "¤" + ReferencePosition.FIELDNAME_END_SITE, new Document("$first", "$" + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_END_SITE));
+	        groupFields.put(VariantData.FIELDNAME_TYPE, new Document("$first", "$" + VariantData.FIELDNAME_TYPE));
+	        groupFields.put(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, new Document("$first", "$" + VariantData.FIELDNAME_KNOWN_ALLELE_LIST));
 
 	        boolean fGotIndividualsWithMultipleSamples = false;
 	        for (int g : filteredGroups)
@@ -333,11 +334,11 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	 * @see java.util.Iterator#next()
 	 */
 	@Override
-	public List<DBObject> next()
+	public List<BasicDBObject> next()
 	{
 		nNextCallCount++;
 				        
-		List<DBObject> pipeline = new ArrayList<DBObject>();
+		List<BasicDBObject> pipeline = new ArrayList<BasicDBObject>();
 		BasicDBList initialMatchList = new BasicDBList(), annotationMatchList = new BasicDBList(), finalMatchList = new BasicDBList();
 
 		pipeline.add(new BasicDBObject("$match", new BasicDBObject("$and", initialMatchList)));
@@ -352,7 +353,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 		if (fFilteringOnSequence)
 			initialMatchList.addAll(variantQueryDBList);	// more efficient if added first in this case
 		
-        if (mongoTemplate.count(null, GenotypingProject.class) != 1)
+        if (Helper.estimDocCount(mongoTemplate,GenotypingProject.class) != 1)
 			initialMatchList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID, genotypingProject.getId()));
     	
         int currentInterval = intervalIndexList.get(0);
@@ -388,7 +389,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 			if (variantEffects.length() > 0)
 				annotationMatchList.add(new BasicDBObject(VariantRunData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME, new BasicDBObject("$in", Helper.split(variantEffects, ","))));
 			
-			// we add another $match rather than re-using the first one because the first one may be pulled out from this pipeline and used for pre-filtering on the main variant collection, and functional annotations are only present in the run documents 
+			// we add another $match rather than re-using the first one because the first one may be pulled out from this pipeline and used for pre-filtering on the main variant collection, and functional annotations are only present in the run BasicDBObjects 
 			pipeline.add(new BasicDBObject("$match", new BasicDBObject("$and", annotationMatchList)));
         }
 		
@@ -459,9 +460,9 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
         if (variantQueryDBList.size() > 0 && !fFilteringOnSequence)
         	initialMatchList.addAll(variantQueryDBList);	// more efficient if added after chunking bit in this case
         
-		DBObject group = (DBObject) groupFields.clone();
+        BasicDBObject group = new BasicDBObject(groupFields);
 		group.put("_id", "$_id." + VariantRunDataId.FIELDNAME_VARIANT_ID); // group multi-run records by variant id
-        DBObject project = (DBObject) projectionFields.clone();
+		BasicDBObject project = new BasicDBObject(projectionFields);
         BasicDBObject addFieldsVars = new BasicDBObject();	// used for handling "all or mostly the same" filter
         BasicDBObject addFieldsIn = new BasicDBObject();	// used for handling "all or mostly the same" filter
     	BasicDBObject vars = new BasicDBObject();
@@ -627,8 +628,8 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 	            if (selectedIndividuals[g].size() >= 1) {
 					if (fZygosityRegex[g]) {	// query to match specific genotype code with zygosity regex (homozygous var, homozygous ref, heterozygous)
 						BasicDBList orSelectedGenotypeRegexAndFieldExistList = new BasicDBList();
-						DBObject orFinalSelectedGenotypeRegexAndFieldExist = new BasicDBObject();
-						DBObject andFinalSelectedGenotypeRegexAndFieldExist = new BasicDBObject();
+						BasicDBObject orFinalSelectedGenotypeRegexAndFieldExist = new BasicDBObject();
+						BasicDBObject andFinalSelectedGenotypeRegexAndFieldExist = new BasicDBObject();
 					
 						for (int j=0; j<selectedIndividuals[g].size(); j++) {
 							/* FIXME: we can probably support heterozygous multiple-digit-genotypes using {$not : /^([0-9]+)(\/\1)*$/} */
@@ -644,8 +645,8 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 								else
 								{
 									BasicDBList orList = new BasicDBList();
-									DBObject clause1 = new BasicDBObject("r.d" + g + "." + j, new BasicDBObject("$exists", false));
-						    		DBObject clause2 = new BasicDBObject("r.d" + g + "." + j, new BasicDBObject("$regex", cleanOperator[g]));
+									BasicDBObject clause1 = new BasicDBObject("r.d" + g + "." + j, new BasicDBObject("$exists", false));
+									BasicDBObject clause2 = new BasicDBObject("r.d" + g + "." + j, new BasicDBObject("$regex", cleanOperator[g]));
 									orList.add(clause1);
 									orList.add(clause2);
 									orSelectedGenotypeRegexAndFieldExistList.add(new BasicDBObject("$or", orList));
@@ -725,7 +726,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 			 pipeline.add(new BasicDBObject("$match", new BasicDBObject("$and", finalMatchList)));
 
 //        if (nNextCallCount == 1) {
-//        	try { System.out.println(new ObjectMapper().defaultPrettyPrintingWriter().writeValueAsString(pipeline)); }
+//        	try { System.out.println(new ObjectMapper().writeValueAsString(pipeline)); }
 //        	catch (Exception ignored) {}
 //        }
         return pipeline;
@@ -766,7 +767,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 		return 1 + Integer.parseInt(firstAsString.substring(18, 24), 16) == Integer.parseInt(secondAsString.substring(18, 24), 16);
 	}
 
-//	public static BasicDBObject tryAndShrinkIdList(String pathToVariantId, Collection<Comparable> idCollection, int nShrinkThreshold)
+//	public static Document tryAndShrinkIdList(String pathToVariantId, Collection<Comparable> idCollection, int nShrinkThreshold)
 //	{
 //		if (idCollection.size() >= 300000)
 //			try
@@ -788,9 +789,9 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 //						if (rangeIdList.size() >= nShrinkThreshold)
 //						{	// replace list with a range
 //							BasicDBList chunkMatchAndList = new BasicDBList();
-//							chunkMatchAndList.add(new BasicDBObject(pathToVariantId, new BasicDBObject("$gte", rangeIdList.get(0))));
-//							chunkMatchAndList.add(new BasicDBObject(pathToVariantId, new BasicDBObject("$lte", rangeIdList.get(rangeIdList.size() - 1))));
-//							orList.add(new BasicDBObject("$and", chunkMatchAndList));
+//							chunkMatchAndList.add(new Document(pathToVariantId, new Document("$gte", rangeIdList.get(0))));
+//							chunkMatchAndList.add(new Document(pathToVariantId, new Document("$lte", rangeIdList.get(rangeIdList.size() - 1))));
+//							orList.add(new Document("$and", chunkMatchAndList));
 //						}
 //						else
 //							inIdList.addAll(rangeIdList);	// range is too small, keep the list
@@ -803,9 +804,9 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 //				inIdList.addAll(rangeIdList);
 //		
 //				if (inIdList.size() > 0 || orList.size() == 0)
-//					orList.add(new BasicDBObject(pathToVariantId, new BasicDBObject("$in", inIdList)));
+//					orList.add(new Document(pathToVariantId, new Document("$in", inIdList)));
 //		
-//				return orList.size() > 1 ? new BasicDBObject("$or", orList) : (BasicDBObject) orList.iterator().next();
+//				return orList.size() > 1 ? new Document("$or", orList) : (Document) orList.iterator().next();
 //			}
 //			catch (ClassCastException cce)
 //			{
@@ -817,7 +818,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
 ////			LOG.debug("Didn't shrink id collection (" + idCollection.size() + " records only)");
 ////		}
 //		
-//		return new BasicDBObject(pathToVariantId, new BasicDBObject("$in", idCollection));	// not shrinked
+//		return new Document(pathToVariantId, new Document("$in", idCollection));	// not shrinked
 //	}
 	
 	public static HashMap<String, String> getGenotypePatternToQueryMap() {
@@ -847,7 +848,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<DBObject>>
     {
         List<Integer> result = getGroupsForWhichToFilterOnGenotypingData(gsvr);
     	
-    	if (result.size() == 0 && (MongoTemplateManager.get(GigwaSearchVariantsRequest.getInfoFromId(gsvr.getVariantSetId(), 2)[0]).count(null, GenotypingProject.class) != 1 || gsvr.getGeneName().length() > 0 || gsvr.getVariantEffect().length() > 0))
+    	if (result.size() == 0 && (Helper.estimDocCount(GigwaSearchVariantsRequest.getInfoFromId(gsvr.getVariantSetId(), 2)[0], GenotypingProject.class) != 1 || gsvr.getGeneName().length() > 0 || gsvr.getVariantEffect().length() > 0))
     		result.add(0);	// needed at least for filtering on annotation data or distinguish records according to project id
 
     	return result;
