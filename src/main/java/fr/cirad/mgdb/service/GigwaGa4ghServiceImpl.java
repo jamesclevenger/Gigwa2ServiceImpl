@@ -917,7 +917,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                         	if (!hostsNotSupportingMergeOperator.contains(sMongoHost))
 	                            try {
 	                                genotypingDataPipeline.add(new BasicDBObject("$merge", new BasicDBObject("into", tmpVarColl.getNamespace().getCollectionName()).append("whenMatched", "fail" /* important (fastest option)*/)));
-		                            vrdColl.aggregate(genotypingDataPipeline).allowDiskUse(isAggregationAllowedToUseDisk()).iterator().close();
+		                            vrdColl.aggregate(genotypingDataPipeline).allowDiskUse(isAggregationAllowedToUseDisk()).toCollection();
 	                            }
 	                            catch (Throwable t) {
 	                                if (t instanceof MongoCommandException && t.getMessage().contains("$merge")) {
