@@ -2517,7 +2517,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		// create a callSet for each item in the list
 		for (int i = start; i < end; i++) {
 			final Individual ind = listInd.get(i);
-			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(listVariantSetId).setSampleId(createId(module, info[1], ind.getId(), indIdToSampleIdMap.get(ind.getId())));
+			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(listVariantSetId).setSampleId(createId(module, info[1], ind.getId(), /*FIXME: looks wrong to pick one of the individual's sample*/ indIdToSampleIdMap.get(ind.getId())));
 			if (!ind.getAdditionalInfo().isEmpty())
 				csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()))));
 			callSet = csb.build();
