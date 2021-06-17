@@ -2446,9 +2446,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		String module = info[0];
 		MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
 
-		List<String> listVariantSetId = new ArrayList<>();
-		listVariantSetId.add(scsr.getVariantSetId());
-
 		// build the list of individuals
 		Query q = new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(Integer.parseInt(info[1])));
 		q.fields().include(GenotypingSample.FIELDNAME_INDIVIDUAL);
@@ -2501,7 +2498,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		// create a callSet for each item in the list
 		for (int i = start; i < end; i++) {
 			final Individual ind = listInd.get(i);
-			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(listVariantSetId).setSampleId(createId(module, info[1], ind.getId(), /*FIXME: looks wrong to pick one of the individual's sample*/ indIdToSampleIdMap.get(ind.getId())));
+			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(Arrays.asList(scsr.getVariantSetId())).setSampleId(createId(module, info[1], ind.getId(), /*FIXME: looks wrong to pick one of the individual's sample*/ indIdToSampleIdMap.get(ind.getId())));
 			if (!ind.getAdditionalInfo().isEmpty())
 				csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()))));
 			callSet = csb.build();
