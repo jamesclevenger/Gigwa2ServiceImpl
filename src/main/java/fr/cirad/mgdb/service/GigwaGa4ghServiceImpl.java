@@ -1396,26 +1396,29 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			matchAndList.add(new BasicDBObject(VariantData.FIELDNAME_TYPE, gsvdr.getDisplayedVariantType()));
 		BasicDBObject match = new BasicDBObject("$match", new BasicDBObject("$and", matchAndList));
 
-		BasicDBObject groupFields = new BasicDBObject("_id", null);
-		groupFields.put("min", new BasicDBObject("$min", "$" + (VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE)));
-		groupFields.put("max", new BasicDBObject("$max", "$" + (VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE)));
-		BasicDBObject group = new BasicDBObject("$group", groupFields);
-
-		List<BasicDBObject> pipeline = new ArrayList<BasicDBObject>();
-		pipeline.add(match);
-		pipeline.add(group);
-		MongoCursor<Document> cursor = mongoTemplate.getCollection(collectionName).aggregate(pipeline).iterator();
+		String startFieldPath = VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE;
+		BasicDBObject sort = new BasicDBObject("$sort", new BasicDBObject(startFieldPath, 1));		
+		BasicDBObject limit = new BasicDBObject("$limit", 1);		
+		MongoCursor<Document> cursor = mongoTemplate.getCollection(collectionName).aggregate(Arrays.asList(match, sort, limit)).iterator();
 		if (!cursor.hasNext()) {
 			if (progress != null)
 				progress.markAsComplete();
-			return false;	// no variants found matching filter
+			return false;	// no variant found matching filter
 		}
-
 		Document aggResult = (Document) cursor.next();
 		if (gsvdr.getDisplayedRangeMin() == null)
-			gsvdr.setDisplayedRangeMin((Long) aggResult.get("min"));
+			gsvdr.setDisplayedRangeMin((Long) Helper.readPossiblyNestedField(aggResult, startFieldPath, "; "));
+		
+		sort = new BasicDBObject("$sort", new BasicDBObject(startFieldPath, -1));		
+		cursor = mongoTemplate.getCollection(collectionName).aggregate(Arrays.asList(match, sort, limit)).iterator();
+		if (!cursor.hasNext()) {
+			if (progress != null)
+				progress.markAsComplete();
+			return false;	// no variant found matching filter
+		}
+		aggResult = (Document) cursor.next();
 		if (gsvdr.getDisplayedRangeMax() == null)
-			gsvdr.setDisplayedRangeMax((Long) aggResult.get("max"));
+			gsvdr.setDisplayedRangeMax((Long) Helper.readPossiblyNestedField(aggResult, startFieldPath, "; "));
 		return true;
 	}
 
