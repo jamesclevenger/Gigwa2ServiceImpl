@@ -2164,7 +2164,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 if (proj.getDescription() != null)
                 {
                 	VariantSetMetadata vsmd = new VariantSetMetadata();
-                	vsmd.setKey("description");
+                	vsmd.setKey(Constants.DESCRIPTION);
                 	vsmd.setValue(proj.getDescription());
                 	metadata.add(vsmd);
                 }
@@ -2503,7 +2503,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			final Individual ind = listInd.get(i);
 			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(Arrays.asList(scsr.getVariantSetId())).setSampleId(createId(module, info[1], ind.getId(), /*FIXME: looks wrong to pick one of the individual's sample*/ indIdToSampleIdMap.get(ind.getId())));
 			if (!ind.getAdditionalInfo().isEmpty())
-				csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()))));
+				csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()), (u,v) -> { throw new IllegalStateException(String.format("Duplicate key %s", u)); }, LinkedHashMap::new)));
 			callSet = csb.build();
 			listCallSet.add(callSet);
 		}
@@ -2568,7 +2568,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     .setMd5checksum("")	/* not supported at the time */
                     .setSourceAccessions(list)
                     .setNcbiTaxonId(MongoTemplateManager.getTaxonId(module))
-                    .setDescription((taxoDesc.isEmpty() ? "" : (taxoDesc + " ; ")) + mongoTemplate.getCollection(mongoTemplate.getCollectionName(GenotypingProject.class)).distinct(GenotypingProject.FIELDNAME_SEQUENCES, String.class).into(new ArrayList<>()).size() + " references ; " + mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).estimatedDocumentCount() + " markers")
+                    .setDescription(	(taxoDesc.isEmpty() ? "" : (taxoDesc + " ; "))
+                    					+ mongoTemplate.getCollection(mongoTemplate.getCollectionName(GenotypingProject.class)).distinct(GenotypingProject.FIELDNAME_SEQUENCES, String.class).into(new ArrayList<>()).size() + " references ; "
+                    					+ mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).estimatedDocumentCount() + " markers")
                     .build();
             listRef.add(referenceSet);
         }
@@ -2626,7 +2628,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             if (proj.getDescription() != null)
             {
             	VariantSetMetadata vsmd = new VariantSetMetadata();
-            	vsmd.setKey("description");
+            	vsmd.setKey(Constants.DESCRIPTION);
             	vsmd.setValue(proj.getDescription());
             	metadata.add(vsmd);
             }
@@ -3187,7 +3189,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public TreeMap<String, HashMap<String, String>> getExportFormat(String module, int projId) {
+    public TreeMap<String, HashMap<String, String>> getExportFormats() {
         TreeMap<String, HashMap<String, String>> exportFormats = new TreeMap<>();
         try {
             for (IExportHandler exportHandler : AbstractIndividualOrientedExportHandler.getIndividualOrientedExportHandlers().values()) {
