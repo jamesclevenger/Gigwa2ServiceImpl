@@ -2904,7 +2904,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	                    if (header != null) {
 	                        // consider using the headers for additional info keySet
 	                    	String sBeforeFieldList = fAnnStyle ? ": " : " (";
-	                        headerField = header.substring(header.indexOf(sBeforeFieldList) + sBeforeFieldList.length(), fAnnStyle ? header.length() : header.indexOf(")")).split("\\|");
+	                        headerField = header.substring(header.indexOf(sBeforeFieldList) + sBeforeFieldList.length(), fAnnStyle ? header.length() : header.indexOf(")")).replaceAll("'", "").split("\\|");
 	                        for (String head : headerField)
 	                            headerList.add(head.replace("[", "").replace("]", "").trim());
 	                    }
