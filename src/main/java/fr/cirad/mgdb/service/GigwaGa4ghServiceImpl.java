@@ -2404,33 +2404,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		   result.setOffset(lrbr.getStart());
 		   return result;
     }
-    
-    /* needed to be able to pass totalCount to the BrAPI v2 call */
-    public class SearchCallSetsResponseWrapper extends SearchCallSetsResponse {
-    	private SearchCallSetsResponse scsr;    	
-    	private int totalCount;
-
-    	public SearchCallSetsResponseWrapper(SearchCallSetsResponse scsr) {
-    		this.scsr = scsr;
-    	}
-
-		public SearchCallSetsResponse getResponse() {
-			return scsr;
-		}
-
-		public int getTotalCount() {
-			return totalCount;
-		}
-
-		public void setTotalCount(int totalCount) {
-			this.totalCount = totalCount;
-		}
-    }
 
 	@Override
 	public SearchCallSetsResponse searchCallSets(SearchCallSetsRequest scsr) throws AvroRemoteException, GAException {
-		SearchCallSetsResponse response = null;
-
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     	String sCurrentUser = auth == null || "anonymousUser".equals(auth.getName()) ? "anonymousUser" : auth.getName();
     	
@@ -2450,20 +2426,15 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
 
 		// build the list of individuals
-		Query q = new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(Integer.parseInt(info[1])));
-		q.fields().include(GenotypingSample.FIELDNAME_INDIVIDUAL);
-		
-		Map<String, Integer> indIdToSampleIdMap = new HashMap<>();
-		for (GenotypingSample sample : mongoTemplate.find(q, GenotypingSample.class))
-			indIdToSampleIdMap.put(sample.getIndividual(), sample.getId());
-
-		q = new Query(Criteria.where("_id").in(indIdToSampleIdMap.keySet()));
+		List<String> indIDs = mongoTemplate.findDistinct(new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(Integer.parseInt(info[1]))), GenotypingSample.FIELDNAME_INDIVIDUAL, GenotypingSample.class, String.class);
+		Query q = new Query(Criteria.where("_id").in(indIDs));
 		q.with(Sort.by(Sort.Direction.ASC, "_id"));
-		long totalCount = mongoTemplate.count(q, Individual.class);
 		List<Individual> listInd = mongoTemplate.find(q, Individual.class);
+
+		// merge with custom metadata if available
 		q = new Query(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser));
 		List<CustomIndividualMetadata> cimdList = mongoTemplate.find(q, CustomIndividualMetadata.class);
-		if(!cimdList.isEmpty()) {
+		if (!cimdList.isEmpty()) {
 			HashMap<String /* indivID */, HashMap<String, Comparable> /* additional info */> indMetadataByIdMap = new HashMap<>();
 			for (CustomIndividualMetadata cimd : cimdList)
 				indMetadataByIdMap.put(cimd.getId().getIndividualId(), cimd.getAdditionalInfo());
@@ -2477,7 +2448,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		}
 
 		List<CallSet> listCallSet = new ArrayList<>();
-
 		int size = listInd.size();
 		// if no pageSize specified, return all results
 		if (scsr.getPageSize() != null) {
@@ -2501,22 +2471,13 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		// create a callSet for each item in the list
 		for (int i = start; i < end; i++) {
 			final Individual ind = listInd.get(i);
-			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(Arrays.asList(scsr.getVariantSetId())).setSampleId(createId(module, info[1], ind.getId(), /*FIXME: looks wrong to pick one of the individual's sample*/ indIdToSampleIdMap.get(ind.getId())));
+			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(Arrays.asList(scsr.getVariantSetId())).setSampleId(createId(module, info[1], ind.getId(), ind.getId()));
 			if (!ind.getAdditionalInfo().isEmpty())
 				csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()), (u,v) -> { throw new IllegalStateException(String.format("Duplicate key %s", u)); }, LinkedHashMap::new)));
 			callSet = csb.build();
 			listCallSet.add(callSet);
 		}
-		response = SearchCallSetsResponse.newBuilder().setCallSets(listCallSet).setNextPageToken(nextPageToken).build();
-		
-		if (!Thread.currentThread().getStackTrace()[2].getClassName().toLowerCase().contains("brapi"))
-			return response;
-	
-		SearchCallSetsResponseWrapper wrapper = new SearchCallSetsResponseWrapper(response);
-		wrapper.setTotalCount((int) totalCount);
-		wrapper.setCallSets(response.getCallSets());	// so this remains compatible with ga4gh
-		wrapper.setNextPageToken(response.getNextPageToken());	// so this remains compatible with ga4gh
-		return wrapper;
+		return SearchCallSetsResponse.newBuilder().setCallSets(listCallSet).setNextPageToken(nextPageToken).build();
 	}
 	
     @Override
