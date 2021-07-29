@@ -37,6 +37,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 
+//import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBObject;
@@ -672,9 +673,16 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
 		                if (fDiscriminate && g == 1) {
 		                	BasicDBObject dominantGt0 = new BasicDBObject("$arrayElemAt", Arrays.asList("$r.d" + 0, new BasicDBObject("$indexOfArray", Arrays.asList("$r.c" + 0, "$$dgc" + 0))));
 		                	BasicDBObject dominantGt1 = new BasicDBObject("$arrayElemAt", Arrays.asList("$r.d" + g, new BasicDBObject("$indexOfArray", Arrays.asList("$r.c" + g, "$$dgc" + g))));
-		                	addFieldsIn.put("sd", new BasicDBObject("$eq", Arrays.asList(dominantGt0, dominantGt1)));	// tells whether dominant genotypes are the same in both groups
+		                	List<BasicDBObject> condsWhereNotApplicable = Arrays.asList(	/* case 1: no dominant genotype (only missing data), case 2: several ex-aequo dominant genotypes */
+	                			new BasicDBObject("$eq", Arrays.asList("$$dgc" + 0, null)),
+	                			new BasicDBObject("$eq", Arrays.asList("$$dgc" + g, null)),
+	                			new BasicDBObject("$ne", Arrays.asList(1, new BasicDBObject("$reduce", new BasicDBObject("input", "$r.c" + 0).append("initialValue", 0).append("in", new BasicDBObject("$add", Arrays.asList("$$value", new BasicDBObject("$cond", Arrays.asList(new BasicDBObject("$eq", Arrays.asList("$$dgc" + 0, "$$this")), 1, 0)))))))),
+	                			new BasicDBObject("$ne", Arrays.asList(1, new BasicDBObject("$reduce", new BasicDBObject("input", "$r.c" + g).append("initialValue", 0).append("in", new BasicDBObject("$add", Arrays.asList("$$value", new BasicDBObject("$cond", Arrays.asList(new BasicDBObject("$eq", Arrays.asList("$$dgc" + g, "$$this")), 1, 0))))))))
+	                		);
+
+		                	addFieldsIn.put("dd", new BasicDBObject("$cond", Arrays.asList(new BasicDBObject("$or", condsWhereNotApplicable), false, new BasicDBObject("$ne", Arrays.asList(dominantGt0, dominantGt1)))));	// tells whether different dominant genotypes exist between both groups
 		                	
-		                	finalMatchList.add(new BasicDBObject("r2.sd", false));
+		                	finalMatchList.add(new BasicDBObject("r2.dd", true));
 		                }
 
 		                finalMatchList.add(new BasicDBObject("r2.ed" + g, true));
