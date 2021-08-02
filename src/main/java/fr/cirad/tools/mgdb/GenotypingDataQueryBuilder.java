@@ -674,16 +674,11 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
 		                	addFieldsIn.put("ed" + g, new BasicDBObject("$gte", Arrays.asList("$$dgc" + g, minimumDominantGenotypeCount)));	// flag telling whether or not we have enough dominant genotypes to reach the required ratio
 		                
 		                if (fDiscriminate && g == 1) {
-		                	BasicDBObject dominantGt0 = new BasicDBObject("$arrayElemAt", Arrays.asList("$r.d" + 0, new BasicDBObject("$indexOfArray", Arrays.asList("$r.c" + 0, "$$dgc" + 0))));
-		                	BasicDBObject dominantGt1 = new BasicDBObject("$arrayElemAt", Arrays.asList("$r.d" + g, new BasicDBObject("$indexOfArray", Arrays.asList("$r.c" + g, "$$dgc" + g))));
-		                	List<BasicDBObject> condsWhereNotApplicable = Arrays.asList(	/* case 1: no dominant genotype (only missing data), case 2: several ex-aequo dominant genotypes */
-	                			new BasicDBObject("$eq", Arrays.asList("$$dgc" + 0, null)),
-	                			new BasicDBObject("$eq", Arrays.asList("$$dgc" + g, null)),
-	                			new BasicDBObject("$ne", Arrays.asList(1, new BasicDBObject("$reduce", new BasicDBObject("input", "$r.c" + 0).append("initialValue", 0).append("in", new BasicDBObject("$add", Arrays.asList("$$value", new BasicDBObject("$cond", Arrays.asList(new BasicDBObject("$eq", Arrays.asList("$$dgc" + 0, "$$this")), 1, 0)))))))),
-	                			new BasicDBObject("$ne", Arrays.asList(1, new BasicDBObject("$reduce", new BasicDBObject("input", "$r.c" + g).append("initialValue", 0).append("in", new BasicDBObject("$add", Arrays.asList("$$value", new BasicDBObject("$cond", Arrays.asList(new BasicDBObject("$eq", Arrays.asList("$$dgc" + g, "$$this")), 1, 0))))))))
-	                		);
-
-		                	addFieldsIn.put("dd", new BasicDBObject("$cond", Arrays.asList(new BasicDBObject("$or", condsWhereNotApplicable), false, new BasicDBObject("$ne", Arrays.asList(dominantGt0, dominantGt1)))));	// tells whether different dominant genotypes exist between both groups
+		                	addFieldsIn.put("dd", new BasicDBObject("$and", Arrays.asList(	/* dd (different dominant) set to true if both groups have exactly one dominant genotype and each group's dominant genotype differs from the other's */
+	                			new BasicDBObject("$eq", Arrays.asList(1, new BasicDBObject("$size", new BasicDBObject("$filter", new BasicDBObject("input", "$r.c" + 0).append("cond", new BasicDBObject("$eq", Arrays.asList("$$dgc" + 0, "$$this"))))))),
+	                			new BasicDBObject("$eq", Arrays.asList(1, new BasicDBObject("$size", new BasicDBObject("$filter", new BasicDBObject("input", "$r.c" + g).append("cond", new BasicDBObject("$eq", Arrays.asList("$$dgc" + g, "$$this"))))))),
+	                			new BasicDBObject("$ne", Arrays.asList(new BasicDBObject("$arrayElemAt", Arrays.asList("$r.d" + 0, new BasicDBObject("$indexOfArray", Arrays.asList("$r.c" + 0, "$$dgc" + 0)))), new BasicDBObject("$arrayElemAt", Arrays.asList("$r.d" + g, new BasicDBObject("$indexOfArray", Arrays.asList("$r.c" + g, "$$dgc" + g))))))
+	                		)));
 
 		                	finalMatchList.add(new BasicDBObject("r2.dd", true));
 		                }
