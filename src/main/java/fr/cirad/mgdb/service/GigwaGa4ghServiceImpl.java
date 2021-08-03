@@ -470,7 +470,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
         final MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
         MongoCollection<Document> cachedCountCollection = mongoTemplate.getCollection(mongoTemplate.getCollectionName(CachedCount.class));
-//		cachedCountCollection.drop();
+		//cachedCountCollection.drop();
         MongoCursor<Document> countCursor = cachedCountCollection.find(new BasicDBObject("_id", queryKey)).iterator();
         Long count = null;
         if (countCursor.hasNext()) {
@@ -779,7 +779,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         String sMongoHost = MongoTemplateManager.getModuleHost(sModule);
         
         MongoCollection<Document> cachedCountCollection = mongoTemplate.getCollection(mongoTemplate.getCollectionName(CachedCount.class));
-//        cachedCountCollection.drop();
+        //cachedCountCollection.drop();
         MongoCursor<Document> countCursor = cachedCountCollection.find(new BasicDBObject("_id", queryKey)).iterator();
 
         final Object[] partialCountArray = !countCursor.hasNext() ? null : ((List<Object>) countCursor.next().get(MgdbDao.FIELD_NAME_CACHED_COUNT_VALUE)).toArray();
@@ -1138,9 +1138,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             }
 
             GenotypingProject project = mongoTemplate.findById(projId, GenotypingProject.class);
-//			Collection<GenotypingSample> samples1 = MgdbDao.getSamplesForProject(sModule, projId, selectedIndividualList1);
-//			Collection<GenotypingSample> samples2 = MgdbDao.getSamplesForProject(sModule, projId, selectedIndividualList2);
-
             Map<String, InputStream> readyToExportFiles = new HashMap<>();
             String sCitingText = appConfig.get("howToCite");
             if (sCitingText == null)
@@ -1166,7 +1163,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 				for (String step : individualOrientedExportHandler.getStepList())
                                     progress.addStep(step);
                                 progress.moveToNextStep();
-								individualOrientedExportHandler.exportData(finalOS, sModule, exportFiles, true, progress, usedVarCollName, variantQuery, count, null, readyToExportFiles);
+								individualOrientedExportHandler.exportData(finalOS, sModule, exportFiles, true, progress, usedVarCollName, variantQuery, count, null, gsver.getMetadataFields(), readyToExportFiles);
 					            if (!progress.isAborted()) {
 					                LOG.info("exportVariants (" + gsver.getExportFormat() + ") took " + (System.currentTimeMillis() - before) / 1000d + "s to process " + count + " variants and " + individualsToExport.size() + " individuals");
 					                progress.markAsComplete();
@@ -1212,7 +1209,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 Thread exportThread = new Thread() {
                 	public void run() {
                         try {
-                        	markerOrientedExportHandler.exportData(finalOS, sModule, selectedIndividualList1, selectedIndividualList2, progress, nTempVarCount == 0 ? null : usedVarColl.getNamespace().getCollectionName(), variantQuery, count, null, gsver.getAnnotationFieldThresholds(), gsver.getAnnotationFieldThresholds2(), samplesToExport, readyToExportFiles);
+                        	markerOrientedExportHandler.exportData(finalOS, sModule, selectedIndividualList1, selectedIndividualList2, progress, nTempVarCount == 0 ? null : usedVarColl.getNamespace().getCollectionName(), variantQuery, count, null, gsver.getAnnotationFieldThresholds(), gsver.getAnnotationFieldThresholds2(), samplesToExport, gsver.getMetadataFields(), readyToExportFiles);
                             if (!progress.isAborted() && progress.getError() == null) {
                             	LOG.info("exportVariants (" + gsver.getExportFormat() + ") took " + (System.currentTimeMillis() - before) / 1000d + "s to process " + count + " variants and " + individualsToExport.size() + " individuals");
                                 progress.markAsComplete();
@@ -2424,32 +2421,10 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		String nextPageToken;
 
 		String module = info[0];
-		MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
-
-		// build the list of individuals
-		List<String> indIDs = mongoTemplate.findDistinct(new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(Integer.parseInt(info[1]))), GenotypingSample.FIELDNAME_INDIVIDUAL, GenotypingSample.class, String.class);
-		Query q = new Query(Criteria.where("_id").in(indIDs));
-		q.with(Sort.by(Sort.Direction.ASC, "_id"));
-		List<Individual> listInd = mongoTemplate.find(q, Individual.class);
-
-		// merge with custom metadata if available
-		q = new Query(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser));
-		List<CustomIndividualMetadata> cimdList = mongoTemplate.find(q, CustomIndividualMetadata.class);
-		if (!cimdList.isEmpty()) {
-			HashMap<String /* indivID */, HashMap<String, Comparable> /* additional info */> indMetadataByIdMap = new HashMap<>();
-			for (CustomIndividualMetadata cimd : cimdList)
-				indMetadataByIdMap.put(cimd.getId().getIndividualId(), cimd.getAdditionalInfo());
-			
-			for( int i=0 ; i<listInd.size(); i++) {
-				String indId = listInd.get(i).getId();
-				HashMap<String, Comparable>  ai = indMetadataByIdMap.get(indId);
-                if(ai != null && !ai.isEmpty())
-                	listInd.get(i).getAdditionalInfo().putAll(ai);
-			}
-		}
+		LinkedHashMap<String, Individual> indMap = MgdbDao.loadIndividualsWithAllMetadata(module, sCurrentUser, Arrays.asList(Integer.parseInt(info[1])), null);
 
 		List<CallSet> listCallSet = new ArrayList<>();
-		int size = listInd.size();
+		int size = indMap.size();
 		// if no pageSize specified, return all results
 		if (scsr.getPageSize() != null) {
 			pageSize = scsr.getPageSize();
@@ -2470,8 +2445,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		}
 
 		// create a callSet for each item in the list
+		List<String> indList = new ArrayList() {{ addAll(indMap.keySet()); }};
 		for (int i = start; i < end; i++) {
-			final Individual ind = listInd.get(i);
+			final Individual ind = indMap.get(indList.get(i));
 			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(Arrays.asList(scsr.getVariantSetId())).setSampleId(createId(module, info[1], ind.getId(), ind.getId()));
 			if (!ind.getAdditionalInfo().isEmpty())
 				csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()), (u,v) -> { throw new IllegalStateException(String.format("Duplicate key %s", u)); }, LinkedHashMap::new)));
