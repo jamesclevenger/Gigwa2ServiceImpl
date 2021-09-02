@@ -2714,7 +2714,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             String nextPageToken;
 
             List<Reference> listReference = new ArrayList<>();
-            List<String> liste = new ArrayList<>();
+            List<String> accessions = new ArrayList<>();
             Map<String, Integer> mapSeq = new TreeMap<>(new AlphaNumericComparator());
 
             // allow search on checksum 
@@ -2758,32 +2758,22 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             pipeline.add(new BasicDBObject("$match", new BasicDBObject("_id", new BasicDBObject("$in", mapSeq.keySet()))));
             MongoCursor<Document> sqCursor = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(Sequence.class)).aggregate(pipeline).allowDiskUse(isAggregationAllowedToUseDisk()).iterator();
 
-            Document sequence;
             Iterator<String> iteratorName = mapSeq.keySet().iterator();
             Iterator<Integer> iteratorId = mapSeq.values().iterator();
 
             // create and add the corresponding Reference for each sequence 
             for (int i = start; i < end; i++) {
-                long length = 0L;
-                String checksum = Helper.convertToMD5("");
+            	Document sequence = !sqCursor.hasNext() ? null : sqCursor.next();
                 String name = iteratorName.next();
                 String projectId = Integer.toString(iteratorId.next());
 
-                if (sqCursor.hasNext()) {
-                    sequence = sqCursor.next();
-                    length = (long) sequence.get(Sequence.FIELDNAME_LENGTH);
-                    checksum = (String) sequence.get(Sequence.FIELDNAME_CHECKSUM);
-                }
-
-                String id = createId(module, projectId, name);
-
-                // Checksum : MD5 of the upper-case sequence excluding all whitespace characters 
-                // length == 0 since we don't have this information in VCF files
-                Reference reference = Reference.newBuilder().setId(id)
-                        .setMd5checksum(checksum)
+                // Checksum : MD5 of the upper-case sequence excluding all whitespace characters (we usually don't have it)
+                String md5 = sequence == null ? Helper.convertToMD5("") : (String) sequence.get(Sequence.FIELDNAME_CHECKSUM);
+                Reference reference = Reference.newBuilder().setId(createId(module, projectId, name))
+                        .setMd5checksum(md5 == null ? Helper.convertToMD5("") : md5)
                         .setName(name)
-                        .setLength(length)
-                        .setSourceAccessions(liste)
+                        .setLength(sequence == null ? 0 : (long) sequence.get(Sequence.FIELDNAME_LENGTH))	// length == 0 when we don't have this information
+                        .setSourceAccessions(accessions)
                         .build();
 
                 listReference.add(reference);

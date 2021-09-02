@@ -5,9 +5,8 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <endorsed.dir>${project.build.directory}/endorsed</endorsed.dir>
-        <project.version>2.4-RELEASE</project.version>
-        <mgdb2.version>2.4-RELEASE</mgdb2.version>
-        <mgdb2_export.version>2.4-RELEASE</mgdb2_export.version>
+        <project.version>2.4.1-RELEASE</project.version>
+        <mgdb2_export.version>2.4.1-RELEASE</mgdb2_export.version>
     </properties>
 
     <groupId>fr.cirad</groupId>
@@ -22,17 +21,6 @@
             <artifactId>Gigwa2ServiceInterface</artifactId>
             <version>2.4-RELEASE</version>           
         </dependency>
-        <dependency> 
-            <groupId>fr.cirad</groupId>
-            <artifactId>mgdb2</artifactId>
-            <version>${mgdb2.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>commons-logging</groupId>
-                    <artifactId>commons-logging</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
         
 		<dependency>
 		    <groupId>org.apache.commons</groupId>
@@ -44,6 +32,12 @@
             <groupId>fr.cirad</groupId>
             <artifactId>mgdb2_export</artifactId>
             <version>${mgdb2_export.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
