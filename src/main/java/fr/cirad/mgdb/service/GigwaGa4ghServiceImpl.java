@@ -91,7 +91,6 @@ import org.ga4gh.models.VariantAnnotation;
 import org.ga4gh.models.VariantSet;
 import org.ga4gh.models.VariantSetMetadata;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -114,8 +113,6 @@ import fr.cirad.mgdb.exporting.markeroriented.AbstractMarkerOrientedExportHandle
 import fr.cirad.mgdb.importing.SequenceImport;
 import fr.cirad.mgdb.importing.VcfImport;
 import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
-import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata;
-import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata.CustomIndividualMetadataId;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
@@ -207,6 +204,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     @Autowired private AppConfig appConfig;
     
     private HashSet<String> hostsNotSupportingMergeOperator = new HashSet<>();
+    
+	@Autowired private MgdbDao mgdbDao;
 
     /**
      * number format instance
@@ -2421,7 +2420,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		String nextPageToken;
 
 		String module = info[0];
-		LinkedHashMap<String, Individual> indMap = MgdbDao.loadIndividualsWithAllMetadata(module, sCurrentUser, Arrays.asList(Integer.parseInt(info[1])), null);
+		LinkedHashMap<String, Individual> indMap = mgdbDao.loadIndividualsWithAllMetadata(module, sCurrentUser, Arrays.asList(Integer.parseInt(info[1])), null);
 
 		List<CallSet> listCallSet = new ArrayList<>();
 		int size = indMap.size();
