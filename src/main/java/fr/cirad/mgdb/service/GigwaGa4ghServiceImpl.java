@@ -1152,7 +1152,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             if (individualOrientedExportHandler != null)
             {
                 if (!progress.isAborted()) {
-                    Thread exportThread = new Thread() {
+                    Thread exportThread = new IExportHandler.SessionAwareExportThread(gsver.getRequest().getSession()) {
                     	public void run() {
                             try {
                                 progress.addStep("Reading and re-organizing genotypes"); // initial step will consist in organizing genotypes by individual rather than by marker
@@ -1205,7 +1205,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 if (contentType != null && contentType.trim().length() > 0)
                 	response.setContentType(contentType);
                 
-                Thread exportThread = new Thread() {
+                Thread exportThread = new IExportHandler.SessionAwareExportThread(gsver.getRequest().getSession()) {
                 	public void run() {
                         try {
                         	markerOrientedExportHandler.exportData(finalOS, sModule, selectedIndividualList1, selectedIndividualList2, progress, nTempVarCount == 0 ? null : usedVarColl.getNamespace().getCollectionName(), variantQuery, count, null, gsver.getAnnotationFieldThresholds(), gsver.getAnnotationFieldThresholds2(), samplesToExport, gsver.getMetadataFields(), readyToExportFiles);
