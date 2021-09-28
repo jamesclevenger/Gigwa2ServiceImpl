@@ -694,7 +694,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
      * @param fEmptyItBeforeHand whether or not to empty it beforehand
      * @return the temporary variant collection
      */
-    private MongoCollection<Document> getTemporaryVariantCollection(String sModule, String processID, boolean fEmptyItBeforeHand) {
+    public MongoCollection<Document> getTemporaryVariantCollection(String sModule, String processID, boolean fEmptyItBeforeHand) {
     	MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
         MongoCollection<Document> tmpColl = mongoTemplate.getCollection(MongoTemplateManager.TEMP_COLL_PREFIX + Helper.convertToMD5(processID));
         if (fEmptyItBeforeHand) {
@@ -1735,7 +1735,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	 * @return List<Variant>
 	 * @throws AvroRemoteException
 	 */
-	private List<Variant> getVariantListFromDBCursor(String module, int projId, MongoCursor<Document> cursor, Collection<GenotypingSample> samples, String run) throws AvroRemoteException
+	public List<Variant> getVariantListFromDBCursor(String module, int projId, MongoCursor<Document> cursor, Collection<GenotypingSample> samples, String run) throws AvroRemoteException
 	{
 //    	long before = System.currentTimeMillis();
         LinkedHashMap<Comparable, Variant> varMap = new LinkedHashMap<>();
