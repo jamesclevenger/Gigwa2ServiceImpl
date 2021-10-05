@@ -2449,7 +2449,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			final Individual ind = indMap.get(indList.get(i));
 			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(Arrays.asList(scsr.getVariantSetId())).setSampleId(createId(module, info[1], ind.getId(), ind.getId()));
 			if (!ind.getAdditionalInfo().isEmpty())
-				csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()), (u,v) -> { throw new IllegalStateException(String.format("Duplicate key %s", u)); }, LinkedHashMap::new)));
+				csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(Helper.nullToEmptyString(ind.getAdditionalInfo().get(k))), (u,v) -> { throw new IllegalStateException(String.format("Duplicate key %s", u)); }, LinkedHashMap::new)));
 			callSet = csb.build();
 			listCallSet.add(callSet);
 		}
