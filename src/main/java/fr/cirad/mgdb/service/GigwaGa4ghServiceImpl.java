@@ -694,7 +694,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
      * @param fEmptyItBeforeHand whether or not to empty it beforehand
      * @return the temporary variant collection
      */
-    private MongoCollection<Document> getTemporaryVariantCollection(String sModule, String processID, boolean fEmptyItBeforeHand) {
+    public MongoCollection<Document> getTemporaryVariantCollection(String sModule, String processID, boolean fEmptyItBeforeHand) {
     	MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
         MongoCollection<Document> tmpColl = mongoTemplate.getCollection(MongoTemplateManager.TEMP_COLL_PREFIX + Helper.convertToMD5(processID));
         if (fEmptyItBeforeHand) {
@@ -1735,7 +1735,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	 * @return List<Variant>
 	 * @throws AvroRemoteException
 	 */
-	private List<Variant> getVariantListFromDBCursor(String module, int projId, MongoCursor<Document> cursor, Collection<GenotypingSample> samples, String run) throws AvroRemoteException
+	public List<Variant> getVariantListFromDBCursor(String module, int projId, MongoCursor<Document> cursor, Collection<GenotypingSample> samples, String run) throws AvroRemoteException
 	{
 //    	long before = System.currentTimeMillis();
         LinkedHashMap<Comparable, Variant> varMap = new LinkedHashMap<>();
@@ -2448,6 +2448,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		for (int i = start; i < end; i++) {
 			final Individual ind = indMap.get(indList.get(i));
 			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(Arrays.asList(scsr.getVariantSetId())).setSampleId(createId(module, info[1], ind.getId(), ind.getId()));
+                        
 			if (!ind.getAdditionalInfo().isEmpty()) {
                             Map<String, String> addInfoMap = new HashMap();
                             for (String key:ind.getAdditionalInfo().keySet()) {
@@ -2461,7 +2462,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                             }
                             csb.setInfo(addInfoMap.keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(addInfoMap.get(k).toString()), (u,v) -> { throw new IllegalStateException(String.format("Duplicate key %s", u)); }, LinkedHashMap::new)));
                         }
-				
 			callSet = csb.build();
 			listCallSet.add(callSet);
 		}
