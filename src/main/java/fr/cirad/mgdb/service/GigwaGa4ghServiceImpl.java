@@ -2448,8 +2448,20 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		for (int i = start; i < end; i++) {
 			final Individual ind = indMap.get(indList.get(i));
 			CallSet.Builder csb = CallSet.newBuilder().setId(createId(module, info[1], ind.getId())).setName(ind.getId()).setVariantSetIds(Arrays.asList(scsr.getVariantSetId())).setSampleId(createId(module, info[1], ind.getId(), ind.getId()));
-			if (!ind.getAdditionalInfo().isEmpty())
-				csb.setInfo(ind.getAdditionalInfo().keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(ind.getAdditionalInfo().get(k).toString()), (u,v) -> { throw new IllegalStateException(String.format("Duplicate key %s", u)); }, LinkedHashMap::new)));
+			if (!ind.getAdditionalInfo().isEmpty()) {
+                            Map<String, String> addInfoMap = new HashMap();
+                            for (String key:ind.getAdditionalInfo().keySet()) {
+                                Object value = ind.getAdditionalInfo().get(key);
+                                if (value instanceof String) {
+                                    int spaces = ((String) value).length() - ((String) value).replaceAll(" ", "").length();
+                                    if (spaces < 3) {
+                                        addInfoMap.put(key, value.toString());
+                                    }                                    
+                                }
+                            }
+                            csb.setInfo(addInfoMap.keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(addInfoMap.get(k).toString()), (u,v) -> { throw new IllegalStateException(String.format("Duplicate key %s", u)); }, LinkedHashMap::new)));
+                        }
+				
 			callSet = csb.build();
 			listCallSet.add(callSet);
 		}
