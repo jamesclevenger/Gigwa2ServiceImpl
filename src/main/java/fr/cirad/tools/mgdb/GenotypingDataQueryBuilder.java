@@ -37,7 +37,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+//import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBObject;
@@ -786,10 +786,10 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
 		if (finalMatchList.size() > 0)
 			 pipeline.add(new BasicDBObject("$match", new BasicDBObject("$and", finalMatchList)));
 
-        if (nNextCallCount == 1) {
-        	try { System.out.println(new ObjectMapper().writeValueAsString(pipeline)); }
-        	catch (Exception ignored) {}
-        }
+//        if (nNextCallCount == 1) {
+//        	try { System.out.println(new ObjectMapper().writeValueAsString(pipeline)); }
+//        	catch (Exception ignored) {}
+//        }
         return pipeline;
     }
 
