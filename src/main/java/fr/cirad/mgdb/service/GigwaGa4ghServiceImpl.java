@@ -105,6 +105,7 @@ import com.mongodb.MongoCommandException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
+import com.mongodb.client.model.Projections;
 
 import fr.cirad.controller.GigwaMethods;
 import fr.cirad.mgdb.exporting.IExportHandler;
@@ -139,6 +140,7 @@ import fr.cirad.tools.mgdb.GenotypingDataQueryBuilder;
 import fr.cirad.tools.mongo.MongoTemplateManager;
 import fr.cirad.tools.security.base.AbstractTokenManager;
 import fr.cirad.utils.Constants;
+import ga4gh.Variants;
 import htsjdk.variant.variantcontext.GenotypeLikelihoods;
 import htsjdk.variant.vcf.VCFCompoundHeaderLine;
 import htsjdk.variant.vcf.VCFConstants;
@@ -147,6 +149,7 @@ import htsjdk.variant.vcf.VCFFormatHeaderLine;
 import htsjdk.variant.vcf.VCFHeaderLine;
 import htsjdk.variant.vcf.VCFInfoHeaderLine;
 import htsjdk.variant.vcf.VCFSimpleHeaderLine;
+import java.util.regex.Pattern;
 
 /**
  *
@@ -353,48 +356,56 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         List<String> selectedVariantTypes = gsvr.getSelectedVariantTypes().length() == 0 ? null : Arrays.asList(gsvr.getSelectedVariantTypes().split(";"));
         List<String> selectedSequences = Arrays.asList(actualSequenceSelection == null || actualSequenceSelection.length() == 0 ? new String[0] : actualSequenceSelection.split(";"));
         List<String> alleleCountList = gsvr.getAlleleCount().length() == 0 ? null : Arrays.asList(gsvr.getAlleleCount().split(";"));
+        List<String> selectedVariantIds = gsvr.getSelectedVariantIds().length() == 0 ? null : Arrays.asList(gsvr.getSelectedVariantIds().split(";"));
         
         BasicDBList variantFeatureFilterList = new BasicDBList();
+        
+        if (selectedVariantIds == null) {
 
-        /* Step to match selected variant types */
-        if (selectedVariantTypes != null && selectedVariantTypes.size() > 0) {
-            BasicDBList orList1 = new BasicDBList();
-            BasicDBObject orSelectedVariantTypesList = new BasicDBObject();
-            for (String aSelectedVariantTypes : selectedVariantTypes) {
-            	BasicDBObject orClause1 = new BasicDBObject(VariantData.FIELDNAME_TYPE, aSelectedVariantTypes);
-                orList1.add(orClause1);
-                orSelectedVariantTypesList.put("$or", orList1);
+            /* Step to match selected variant types */
+            if (selectedVariantTypes != null && selectedVariantTypes.size() > 0) {
+                BasicDBList orList1 = new BasicDBList();
+                BasicDBObject orSelectedVariantTypesList = new BasicDBObject();
+                for (String aSelectedVariantTypes : selectedVariantTypes) {
+                    BasicDBObject orClause1 = new BasicDBObject(VariantData.FIELDNAME_TYPE, aSelectedVariantTypes);
+                    orList1.add(orClause1);
+                    orSelectedVariantTypesList.put("$or", orList1);
+                }
+                variantFeatureFilterList.add(orSelectedVariantTypesList);
             }
-            variantFeatureFilterList.add(orSelectedVariantTypesList);
-        }
 
-        /* Step to match selected chromosomes */
-        if (selectedSequences != null && selectedSequences.size() > 0 && selectedSequences.size() != getProjectSequences(sModule, projId).size()) {
-            variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, new BasicDBObject("$in", selectedSequences)));
-        }
+            /* Step to match selected chromosomes */
+            if (selectedSequences != null && selectedSequences.size() > 0 && selectedSequences.size() != getProjectSequences(sModule, projId).size()) {
+                variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, new BasicDBObject("$in", selectedSequences)));
+            }
 
-        /* Step to match variants that have a position included in the specified range */
-        if (gsvr.getStart() != null || gsvr.getEnd() != null) {
-            if (gsvr.getStart() != null && gsvr.getStart() != -1) {
-            	BasicDBObject firstPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$gte", gsvr.getStart()));
-                variantFeatureFilterList.add(firstPosStart);
+            /* Step to match variants that have a position included in the specified range */
+            if (gsvr.getStart() != null || gsvr.getEnd() != null) {
+                if (gsvr.getStart() != null && gsvr.getStart() != -1) {
+                    BasicDBObject firstPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$gte", gsvr.getStart()));
+                    variantFeatureFilterList.add(firstPosStart);
+                }
+                if (gsvr.getEnd() != null && gsvr.getEnd() != -1) {
+                    BasicDBObject lastPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$lte", gsvr.getEnd()));
+                    variantFeatureFilterList.add(lastPosStart);
+                }
             }
-            if (gsvr.getEnd() != null && gsvr.getEnd() != -1) {
-            	BasicDBObject lastPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$lte", gsvr.getEnd()));
-                variantFeatureFilterList.add(lastPosStart);
-            }
-        }
 
-        /* Step to match selected number of alleles */
-        if (alleleCountList != null) {
-            BasicDBList orList3 = new BasicDBList();
-            BasicDBObject orSelectedNumberOfAllelesList = new BasicDBObject();
-            for (String aSelectedNumberOfAlleles : alleleCountList) {
-                int alleleNumber = Integer.parseInt(aSelectedNumberOfAlleles);
-                orList3.add(new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, new BasicDBObject("$size", alleleNumber)));
-                orSelectedNumberOfAllelesList.put("$or", orList3);
+            /* Step to match selected number of alleles */
+            if (alleleCountList != null) {
+                BasicDBList orList3 = new BasicDBList();
+                BasicDBObject orSelectedNumberOfAllelesList = new BasicDBObject();
+                for (String aSelectedNumberOfAlleles : alleleCountList) {
+                    int alleleNumber = Integer.parseInt(aSelectedNumberOfAlleles);
+                    orList3.add(new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, new BasicDBObject("$size", alleleNumber)));
+                    orSelectedNumberOfAllelesList.put("$or", orList3);
+                }
+                variantFeatureFilterList.add(orSelectedNumberOfAllelesList);
             }
-            variantFeatureFilterList.add(orSelectedNumberOfAllelesList);
+        } else {
+            BasicDBObject variantIdsQuery = new BasicDBObject();
+            variantIdsQuery.put("_id", new BasicDBObject("$in", selectedVariantIds));
+            variantFeatureFilterList.add(variantIdsQuery);
         }
 
         return variantFeatureFilterList;
@@ -3150,4 +3161,25 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         }
         return exportFormats;
     }
+    
+    public List<Comparable> searchVariantsLookup(String module, int projectId, String lookupText) throws AvroRemoteException {        
+
+        MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
+
+        List<Comparable> values = new ArrayList<>();
+
+        MongoCollection<Document> collection = mongoTemplate.getCollection(MongoTemplateManager.getMongoCollectionName(VariantData.class));
+                
+        BasicDBObject whereQuery = new BasicDBObject();
+        whereQuery.put("_id", Pattern.compile(".*\\Q" + lookupText + "\\E.*", Pattern.CASE_INSENSITIVE));
+
+        values = collection.distinct("_id", whereQuery, String.class).into(new ArrayList<>());
+        
+    	if (values.size() > 5)
+    		return Arrays.asList("Too many results (" + values.size() + ") , please refine search!");
+
+        return values;
+    }
+
+
 }
