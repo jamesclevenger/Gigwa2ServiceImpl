@@ -2642,6 +2642,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     {
                         Document sortObj = new Document(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1);
                         sortObj.put(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
+                        sortObj.put("_id",1);
                         iterable.sort(sortObj);
                     }
                     iterable.collation(IExportHandler.collationObj);
