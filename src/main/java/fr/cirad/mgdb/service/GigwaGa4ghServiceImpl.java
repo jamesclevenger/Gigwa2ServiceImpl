@@ -724,48 +724,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         return tmpColl;
     }
 
-    /**
-     * get a cursor of variant records and get a given number of result from it
-     * @throws Exception 
-     */
-    private MongoCursor<Document> getVariantCursor(GigwaSearchVariantsRequest gsvr) throws Exception {
-        String token = tokenManager.readToken(gsvr.getRequest());
-        
-        if (token == null)
-            return null;
-        
-        ProgressIndicator progress = ProgressIndicator.get(token);
-        if (progress == null) {
-            progress = new ProgressIndicator(token, new String[0]);
-            ProgressIndicator.registerProgressIndicator(progress);
-        }
-
-        String info[] = GigwaSearchVariantsRequest.getInfoFromId(gsvr.getVariantSetId(), 2);
-        String sModule = info[0];
-
-        MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
-
-        MongoCollection<Document> variantColl = mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class));
-        MongoCollection<Document> tempVarColl = getTemporaryVariantCollection(sModule, token, false);
-        BasicDBList variantQueryDBList = (BasicDBList) buildVariantDataQuery(gsvr, getSequenceIDsBeingFilteredOn(gsvr.getRequest().getSession(), sModule));
-
-        MongoCollection<Document> varCollForBuildingRows = tempVarColl.countDocuments() == 0 ? variantColl : tempVarColl;
-        FindIterable<Document> iterable = varCollForBuildingRows.find(!variantQueryDBList.isEmpty() ? new BasicDBObject("$and", variantQueryDBList) : new BasicDBObject());
-        if (gsvr.getSortBy() != null && gsvr.getSortBy().length() > 0)
-        	iterable.sort(new BasicDBObject(gsvr.getSortBy(), Integer.valueOf("DESC".equalsIgnoreCase(gsvr.getSortDir()) ? -1 : 1)));
-        else
-        {
-        	Document sortObj = new Document(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1);
-        	sortObj.put(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
-        	iterable.sort(sortObj);
-        }
-        iterable.collation(IExportHandler.collationObj);
-        iterable.skip(Integer.parseInt(gsvr.getPageToken()) * gsvr.getPageSize()).limit(gsvr.getPageSize());	// skip the results we don't want
-
-        progress.markAsComplete();
-        return iterable.iterator();
-    }
-
     @Override
     public long findVariants(GigwaSearchVariantsRequest gsvr) throws Exception {
         String token = tokenManager.readToken(gsvr.getRequest());
@@ -1742,16 +1700,15 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	 * @param projId
 	 * @param cursor
 	 * @param samples
-	 * @param run
 	 * @return List<Variant>
 	 * @throws AvroRemoteException
 	 */
-	public List<Variant> getVariantListFromDBCursor(String module, int projId, MongoCursor<Document> cursor, Collection<GenotypingSample> samples, String run) throws AvroRemoteException
+	public List<Variant> getVariantListFromDBCursor(String module, int projId, MongoCursor<Document> cursor, Collection<GenotypingSample> samples) throws AvroRemoteException
 	{
 //    	long before = System.currentTimeMillis();
         LinkedHashMap<Comparable, Variant> varMap = new LinkedHashMap<>();
         LinkedHashMap<Comparable, String> typeMap = new LinkedHashMap<>();
-
+        
         // parse the cursor to create all GAVariant 
         while (cursor.hasNext()) {
 
@@ -1797,19 +1754,20 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
         // get the genotype for wanted individuals/callSet only 
 		final Map<Integer, String> sampleIdToIndividualMap = new HashMap<>();
-        for (GenotypingSample sample : samples)
-	        if (run == null || sample.getRun().equals(run)) {
-	            fields.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + sample.getId(), 1);
-	            sampleIdToIndividualMap.put(sample.getId(), sample.getIndividual());
-	        }
+        for (GenotypingSample sample : samples){
+            fields.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + sample.getId(), 1);
+            sampleIdToIndividualMap.put(sample.getId(), sample.getIndividual());
+        }
         
         BasicDBList matchAndList = new BasicDBList();
         matchAndList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, new BasicDBObject("$in", varMap.keySet())));
         matchAndList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID, projId));
-        if (run != null)
-        	matchAndList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_RUNNAME, run));
+        if (!samples.isEmpty())
+        	matchAndList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_RUNNAME, new BasicDBObject("$in", samples.stream().map(sp -> sp.getRun()).distinct().collect(Collectors.toList()))));
         pipeline.add(new BasicDBObject("$match", new BasicDBObject("$and", matchAndList)));
         pipeline.add(new BasicDBObject("$project", fields));
+        if (samples.isEmpty())    // if no genotypes are expected back then we assume we're building the result table (thus we need to include variant name & effect when available in one of then runs)
+            pipeline.add(new BasicDBObject("$sort", new BasicDBObject(AbstractVariantData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME, -1)));  // if some VariantRunData records have gene info they will appear first, which will make that info available for building the result table
         
         HashSet<String> variantsForWhichAnnotationWasRetrieved = new HashSet<>();
 
@@ -1944,7 +1902,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             var.setInfo(annotations);
         }
 
-//        LOG.debug("getVariantListFromDBCursor took " + (System.currentTimeMillis() - before) / 1000f + "s for " + listVar.size() + " variants and " + samples.size() + " samples");
+//        LOG.debug("getVariantListFromDBCursor took " + (System.currentTimeMillis() - before) / 1000f + "s for " + varMap.size() + " variants and " + samples.size() + " samples");
         return new ArrayList<Variant>(varMap.values());
     }
 
@@ -2204,27 +2162,22 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             // wrong number of param or wrong module name 
         } else {
             String module = info[0];
-            int projId = Integer.parseInt(info[1]);
             String name = info[2];
             String run = null;
             if (info.length == 4)
                 run = info[3];
 
             MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
-            
-            // get the collection of variant 
-            MongoCollection<Document> variantColl = mongoTemplate.getCollection(MongoTemplateManager.getMongoCollectionName(VariantData.class));
+            MongoCursor<Document> cursor = mongoTemplate.getCollection(MongoTemplateManager.getMongoCollectionName(VariantData.class)).find(new BasicDBObject("_id", name)).iterator();
 
-//            // we need to get callSet name and position in the callSet list to get corresponding genotype 
-//            GenotypingProject project = mongoTemplate.findById(projId, GenotypingProject.class);
-
-            BasicDBObject whereQuery = new BasicDBObject();
-            whereQuery.put("_id", name);
-            MongoCursor<Document> cursor = variantColl.find(whereQuery).iterator();
-
-            // if there is no result, return null
             if (cursor != null && cursor.hasNext()) {
-				variant = getVariantListFromDBCursor(module, Integer.parseInt(info[1]), cursor, MgdbDao.getSamplesForProject(module, projId, listInd), run).get(0);
+                List<Criteria> sampleQueryCriteria = new ArrayList<>();
+                if (!listInd.isEmpty())
+                    sampleQueryCriteria.add(Criteria.where(GenotypingSample.FIELDNAME_INDIVIDUAL).in(listInd));
+                if (run != null)
+                    sampleQueryCriteria.add(Criteria.where(GenotypingSample.FIELDNAME_RUN).is(run));
+                Collection<GenotypingSample> samples = mongoTemplate.find(sampleQueryCriteria.isEmpty() ? new Query() : new Query(new Criteria().andOperator(sampleQueryCriteria.toArray(new Criteria[sampleQueryCriteria.size()]))), GenotypingSample.class);
+				variant = getVariantListFromDBCursor(module, Integer.parseInt(info[1]), cursor, samples).get(0);
 				cursor.close();
             }
         }
@@ -2664,8 +2617,39 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     count = countVariants(gsvr, doBrowse);
                 }
                 
-                if (count > 0 && doBrowse)
-                    cursor = getVariantCursor(gsvr);
+                if (count > 0 && doBrowse) {
+                    String token = tokenManager.readToken(gsvr.getRequest());
+                    
+                    if (token == null)
+                        return null;
+                    
+//                    ProgressIndicator progress = ProgressIndicator.get(token);
+//                    if (progress == null) {
+//                        progress = new ProgressIndicator(token, new String[0]);
+//                        ProgressIndicator.registerProgressIndicator(progress);
+//                    }
+
+                    MongoTemplate mongoTemplate = MongoTemplateManager.get(info[0]);
+
+                    MongoCollection<Document> tempVarColl = getTemporaryVariantCollection(info[0], token, false);
+                    BasicDBList variantQueryDBList = (BasicDBList) buildVariantDataQuery(gsvr, getSequenceIDsBeingFilteredOn(gsvr.getRequest().getSession(), info[0]));
+
+                    MongoCollection<Document> varCollForBuildingRows = tempVarColl.countDocuments() == 0 ? mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)) : tempVarColl;
+                    FindIterable<Document> iterable = varCollForBuildingRows.find(!variantQueryDBList.isEmpty() ? new BasicDBObject("$and", variantQueryDBList) : new BasicDBObject());
+                    if (gsvr.getSortBy() != null && gsvr.getSortBy().length() > 0)
+                        iterable.sort(new BasicDBObject(gsvr.getSortBy(), Integer.valueOf("DESC".equalsIgnoreCase(gsvr.getSortDir()) ? -1 : 1)));
+                    else
+                    {
+                        Document sortObj = new Document(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1);
+                        sortObj.put(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
+                        iterable.sort(sortObj);
+                    }
+                    iterable.collation(IExportHandler.collationObj);
+                    iterable.skip(Integer.parseInt(gsvr.getPageToken()) * gsvr.getPageSize()).limit(gsvr.getPageSize());    // skip the results we don't want
+
+//                    progress.markAsComplete();
+                    cursor = iterable.iterator();
+                }
             }
             catch (Exception ex)
             {
@@ -2685,7 +2669,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 					samples = new ArrayList<>();
 				}
 
-				List<Variant> listVar = getVariantListFromDBCursor(module, Integer.parseInt(info[1]), cursor, samples, null);
+				List<Variant> listVar = getVariantListFromDBCursor(module, Integer.parseInt(info[1]), cursor, samples);
 				String nextPageToken = null;
 
                 // if there is still more result after PageSize iterations
@@ -2849,7 +2833,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             queryVarAnn.put("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, variantId);
             varAnnField.put(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, 1);
             varAnnField.put(VariantData.SECTION_ADDITIONAL_INFO, 1);
-            Document variantRunDataObj = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(VariantRunData.class)).find(queryVarAnn).projection(varAnnField).first();
+            Document variantRunDataObj = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(VariantRunData.class)).find(queryVarAnn).projection(varAnnField)
+                .sort(new BasicDBObject(AbstractVariantData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME, -1))  /*FIXME: this method should be called separately for each run*/
+                .first();
             Document variantAnnotationObj = variantRunDataObj != null ? (Document) variantRunDataObj.get(VariantRunData.SECTION_ADDITIONAL_INFO) : null;
             if (variantAnnotationObj != null)
             {
