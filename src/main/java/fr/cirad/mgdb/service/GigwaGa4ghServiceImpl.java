@@ -3162,7 +3162,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
         values = collection.distinct("_id", whereQuery, String.class).into(new ArrayList<>());
         
-    	if (values.size() > 5)
+    	if (values.size() > 10)
     		return Arrays.asList("Too many results (" + values.size() + ") , please refine search!");
 
         return values;
