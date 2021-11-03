@@ -52,6 +52,8 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.DoubleStream;
+import java.util.stream.IntStream;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -98,6 +100,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBObject;
@@ -1457,7 +1460,332 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
 		return new TreeMap<Long, Long>(result);
 	}
+    
+    @Override
+    public Map<Long, Double> selectionFst(GigwaDensityRequest gdr) throws Exception {
+    	long before = System.currentTimeMillis();
 
+        String info[] = GigwaSearchVariantsRequest.getInfoFromId(gdr.getVariantSetId(), 2);
+        String sModule = info[0];
+        
+		ProgressIndicator progress = new ProgressIndicator(tokenManager.readToken(gdr.getRequest()), new String[] {"Calculating " + (gdr.getDisplayedVariantType() != null ? gdr.getDisplayedVariantType() + " " : "") + "Fst estimate on sequence " + gdr.getDisplayedSequence()});
+		ProgressIndicator.registerProgressIndicator(progress);
+
+		final MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
+        final BasicDBList variantQueryDBList = (BasicDBList) buildVariantDataQuery(gdr, getSequenceIDsBeingFilteredOn(gdr.getRequest().getSession(), sModule));
+		
+		MongoCollection<Document> tmpVarColl = getTemporaryVariantCollection(sModule, tokenManager.readToken(gdr.getRequest()), false);
+		long nTempVarCount = mongoTemplate.count(new Query(), tmpVarColl.getNamespace().getCollectionName());
+		if (GenotypingDataQueryBuilder.getGroupsForWhichToFilterOnGenotypingOrAnnotationData(gdr, false).size() > 0 && nTempVarCount == 0)
+		{
+			progress.setError(MESSAGE_TEMP_RECORDS_NOT_FOUND);
+			return null;
+		}
+
+		final String mainVarCollName = mongoTemplate.getCollectionName(VariantData.class), usedVarCollName = nTempVarCount == 0 ? mainVarCollName : tmpVarColl.getNamespace().getCollectionName();
+		final ConcurrentHashMap<Long, Double> result = new ConcurrentHashMap<Long, Double>();
+
+		if (gdr.getDisplayedRangeMin() == null || gdr.getDisplayedRangeMax() == null)
+			if (!findDefaultRangeMinMax(gdr, usedVarCollName, progress))
+				return result;
+
+		final AtomicInteger nTotalTreatedVariantCount = new AtomicInteger(0);
+		final int intervalSize = Math.max(1, (int) ((gdr.getDisplayedRangeMax() - gdr.getDisplayedRangeMin()) / gdr.getDisplayedRangeIntervalCount()));
+		final ArrayList<Thread> threadsToWaitFor = new ArrayList<Thread>();
+		final long rangeMin = gdr.getDisplayedRangeMin();
+		final ProgressIndicator finalProgress = progress;
+		
+		List<BasicDBObject> baseQuery = buildFstQuery(gdr);
+
+		for (int i=0; i<gdr.getDisplayedRangeIntervalCount(); i++)
+		{
+			BasicDBObject initialMatchStage = new BasicDBObject();
+			initialMatchStage.put(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, gdr.getDisplayedSequence());
+			if (gdr.getDisplayedVariantType() != null)
+				initialMatchStage.put(VariantData.FIELDNAME_TYPE, gdr.getDisplayedVariantType());
+			BasicDBObject positionSettings = new BasicDBObject();
+			positionSettings.put("$gte", gdr.getDisplayedRangeMin() + (i*intervalSize));
+			positionSettings.put(i < gdr.getDisplayedRangeIntervalCount() - 1 ? "$lt" : "$lte", i < gdr.getDisplayedRangeIntervalCount() - 1 ? gdr.getDisplayedRangeMin() + ((i+1)*intervalSize) : gdr.getDisplayedRangeMax());
+			String startSitePath = VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE;
+			initialMatchStage.put(startSitePath, positionSettings);
+			if (nTempVarCount == 0 && !variantQueryDBList.isEmpty())
+				initialMatchStage.put("$expr", new BasicDBObject("$and", variantQueryDBList));
+			final long chunkIndex = i;
+			
+			List<BasicDBObject> windowQuery = new ArrayList<BasicDBObject>(baseQuery);
+			windowQuery.set(0, new BasicDBObject("$match", initialMatchStage));
+			
+			//try { System.out.println(new ObjectMapper().writeValueAsString(windowQuery)); }
+            //catch (Exception ignored) {}
+
+            Thread t = new Thread() {
+            	public void run() {
+            		if (!finalProgress.isAborted()) {
+	        			Iterator<Document> it = mongoTemplate.getCollection(usedVarCollName).aggregate(windowQuery).iterator();
+	        			
+	        			/* Structure of a resulting document : {
+	        			 * 		_id: ...,
+	        			 * 		populations: [
+	        			 * 			{sampleSize: 100, alleles: [
+	        			 * 				{allele: 0, alleleFrequency: 0.45, heterozygoteFrequency: 0.31},
+	        			 * 				{allele: 1, alleleFrequency: 0.55, heterozygoteFrequency: 0.31},
+	        			 * 			]},
+	        			 * 			{...}
+	        			 * 		]
+	        			 * }
+	        			 */
+	        			
+	        			double weightedFstSum = 0;
+	        			double fstWeight = 0;
+	        			
+	        			while (it.hasNext()) {
+	        				Document variantResult = it.next();
+	        				
+	        				List<Document> populations = variantResult.getList("populations", Document.class);
+	        				if (populations.size() < 2) {
+	        					// Can not compute Fst with a single population
+	        					// One of the populations has no valid data
+	        					continue;
+	        				}
+	        				int numPopulations = populations.size();  // r : Number of samples to consider
+	        				int numAlleles = variantResult.getInteger("alleleMax") + 1;
+	        				
+	        				// Transposition to [allele][sample] instead of the original [sample][allele] is important to simplify further computations
+	        				int[] sampleSizes = new int[numPopulations];  // n_i = sampleSizes[population] : Size of the population samples (with missing data filtered out)
+	        				double[][] alleleFrequencies = new double[numAlleles][numPopulations];  // p_i = alleleFrequencies[allele][population] : Allele frequency in the given population
+	        				double[][] hetFrequencies = new double[numAlleles][numPopulations];  // h_i = hetFrequencies[allele][population] : Proportion of heterozygotes with the given allele in the given population
+	        				//double[] averageAlleleFrequencies = new double[numAlleles];  // p¯ = averageAlleleFrequencies[allele] : Average frequency of the allele over all populations
+        					//double[] alleleVariance = new double[numAlleles];  // s² = alleleVariance[allele] : Variance of the allele frequency over the populations
+        					//double[] averageHetFrequencies = new double[numAlleles];  // h¯ = averageHetFrequencies : Proportion of heterozygotes with the given allele over all populations
+        					
+        					//Arrays.fill(averageAlleleFrequencies, 0);
+        					//Arrays.fill(alleleVariance, 0);
+        					//Arrays.fill(averageHetFrequencies, 0);
+        					
+        					for (int allele = 0; allele < numAlleles; allele++) {
+        						Arrays.fill(alleleFrequencies[allele], 0);
+        						Arrays.fill(hetFrequencies[allele], 0);
+        					}
+        					
+        					int popIndex = 0;
+	        				for (Document populationResult : populations) {
+	        					int sampleSize = populationResult.getInteger("sampleSize");
+	        					List<Document> alleles = populationResult.getList("alleles", Document.class);
+	        					
+	        					for (Document alleleResult : alleles) {
+	        						int allele = alleleResult.getInteger("allele");
+	        						double alleleFrequency = alleleResult.getDouble("alleleFrequency");
+	        						double heterozygoteFrequency = alleleResult.getDouble("heterozygoteFrequency");
+	        						
+	        						alleleFrequencies[allele][popIndex] = alleleFrequency;
+	        						hetFrequencies[allele][popIndex] = heterozygoteFrequency;
+	        					}
+	        					
+	        					sampleSizes[popIndex] = sampleSize;
+	        					popIndex += 1;
+	        				}
+	        				
+	        				double averageSampleSize = (double)IntStream.of(sampleSizes).sum() / numPopulations;  // n¯ : Average sample size
+	        				double totalSize = averageSampleSize * numPopulations;  // r × n¯
+	        				double sampleSizeCorrection = (totalSize - IntStream.of(sampleSizes).mapToDouble(size -> size*size / totalSize).sum() / (numPopulations - 1));  // n_c
+	        				
+	        				for (int allele = 0; allele < numAlleles; allele++) {
+	        					// Compute weighted averages of allele frequencies (p¯) and heterozygote proportions (h¯)
+	        					double averageAlleleFrequency = 0.0;
+	        					double averageHetFrequency = 0.0;
+	        					for (popIndex = 0; popIndex < numPopulations; popIndex++) {
+	        						averageAlleleFrequency += sampleSizes[popIndex] * alleleFrequencies[allele][popIndex] / totalSize;
+	        						averageHetFrequency += sampleSizes[popIndex] * hetFrequencies[allele][popIndex] / totalSize;
+	        					}
+	        					
+	        					// Compute allele frequency variance (s²)
+	        					double alleleVariance = 0.0;
+	        					for (popIndex = 0; popIndex < numPopulations; popIndex++) {
+	        						alleleVariance += sampleSizes[popIndex] * Math.pow(alleleFrequencies[allele][popIndex] - averageAlleleFrequency, 2) / (averageSampleSize * (numPopulations - 1));
+	        					}
+	        					
+	        					// a = (n¯/nc) × (s² - (1 / (n¯-1))(p¯(1-p¯) - s²(r-1) / r - h¯/4))
+    							double populationVariance = (
+    									(averageSampleSize / sampleSizeCorrection) * (
+    										alleleVariance - (1 / (averageSampleSize - 1)) * (
+    											averageAlleleFrequency * (1 - averageAlleleFrequency) -
+    											(numPopulations - 1) * alleleVariance / numPopulations -
+    											averageHetFrequency / 4
+    										)
+    									)
+    								);
+
+    							// b = (n¯ / (n¯-1))(p¯(1-p¯) - s²(r-1) / r - h¯(2n¯-1)/4n¯)
+    							double individualVariance = (averageSampleSize / (averageSampleSize - 1)) * (
+    									averageAlleleFrequency * (1 - averageAlleleFrequency) -
+    									((numPopulations - 1) / numPopulations) * alleleVariance -
+    									((2*averageSampleSize - 1) / (4*averageSampleSize)) * averageHetFrequency
+    								);
+
+    							// c = h¯/2
+    							double gameteVariance = averageHetFrequency / 2;
+
+    							if (populationVariance != 0 && individualVariance != 0 && gameteVariance != 0 && !Double.isNaN(populationVariance) && !Double.isNaN(individualVariance) && !Double.isNaN(gameteVariance)) {
+    								weightedFstSum += populationVariance;
+    								fstWeight += populationVariance + individualVariance + gameteVariance;
+    							}
+	        				}
+	        			}
+	        			System.out.println(rangeMin + (chunkIndex*intervalSize) + " : " + weightedFstSum + "/" + fstWeight + " = " + weightedFstSum / fstWeight);
+	        			
+	        			result.put(rangeMin + (chunkIndex*intervalSize), weightedFstSum / fstWeight);
+	        			finalProgress.setCurrentStepProgress((short) result.size() * 100 / gdr.getDisplayedRangeIntervalCount());
+            		}
+            	}
+            };
+
+            if (chunkIndex%INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS  == (INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS-1))
+            	t.run();	// run synchronously
+            else
+            {
+            	threadsToWaitFor.add(t);
+            	t.start();	// run asynchronously for better speed
+            }
+		}
+
+		if (progress.isAborted())
+			return null;
+
+		for (Thread ttwf : threadsToWaitFor)	// wait for all threads before moving to next phase
+			ttwf.join();
+
+		progress.setCurrentStepProgress(100);
+		LOG.debug("selectionDensity treated " + nTotalTreatedVariantCount.get() + " variants in " + (System.currentTimeMillis() - before)/1000f + "s");
+		progress.markAsComplete();
+
+		return new TreeMap<Long, Double>(result);
+    }
+    
+    private List<BasicDBObject> buildFstQuery(GigwaDensityRequest gdr) {
+    	String info[] = GigwaSearchVariantsRequest.getInfoFromId(gdr.getVariantSetId(), 2);
+        String sModule = info[0];
+        int projId = Integer.parseInt(info[1]);
+        
+    	List<BasicDBObject> pipeline = new ArrayList<BasicDBObject>();
+    	
+    	// Stage 1 : placeholder for initial match stage
+    	pipeline.add(null);
+    	
+    	// Stage 2 : Get populations genotypes
+    	Collection<String> selectedIndividuals1 = gdr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet());
+    	Collection<String> selectedIndividuals2 = gdr.getCallSetIds2().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds2().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet());
+    	
+    	BasicDBList genotypes1 = getFullPathToGenotypes(sModule, projId, selectedIndividuals1);
+    	BasicDBList genotypes2 = getFullPathToGenotypes(sModule, projId, selectedIndividuals2);
+    	
+    	BasicDBList populationGenotypes = new BasicDBList();
+    	populationGenotypes.add(genotypes1);
+    	populationGenotypes.add(genotypes2);
+    	
+    	BasicDBObject projectGenotypes = new BasicDBObject("populationGenotypes", populationGenotypes);
+    	pipeline.add(new BasicDBObject("$project", projectGenotypes));
+    	
+    	// Stage 3 : Split by population
+    	BasicDBObject unwindPopulations = new BasicDBObject();
+    	unwindPopulations.put("path", "$populationGenotypes");
+    	unwindPopulations.put("includeArrayIndex", "population");
+    	pipeline.add(new BasicDBObject("$unwind", unwindPopulations));
+    	
+    	
+    	// Stage 4 : Compute sample size
+    	BasicDBObject sampleSizeMapping = new BasicDBObject();
+    	sampleSizeMapping.put("input", "$populationGenotypes");
+    	sampleSizeMapping.put("in", new BasicDBObject("$toInt", new BasicDBObject("$ne", Arrays.asList("$$this", null))));
+    	BasicDBObject addSampleSize = new BasicDBObject("$sum", new BasicDBObject("$map", sampleSizeMapping));
+    	pipeline.add(new BasicDBObject("$addFields", new BasicDBObject("sampleSize", addSampleSize)));
+    	
+    	// Stage 5 : Unwind by genotype
+    	pipeline.add(new BasicDBObject("$unwind", "$populationGenotypes"));
+    	
+    	// Stage 6 : Eliminate missing genotypes
+    	BasicDBObject matchMissing = new BasicDBObject("populationGenotypes", new BasicDBObject("$ne", null));
+    	pipeline.add(new BasicDBObject("$match", matchMissing));
+    	
+    	// Stage 7 : Split genotype strings
+    	BasicDBObject projectSplitGenotypes = new BasicDBObject();
+    	projectSplitGenotypes.put("population", 1);
+    	projectSplitGenotypes.put("sampleSize", 1);
+    	BasicDBObject splitMapping = new BasicDBObject();
+    	splitMapping.put("input", new BasicDBObject("$split", Arrays.asList("$populationGenotypes", "/")));
+    	splitMapping.put("in", new BasicDBObject("$toInt", "$$this"));
+    	projectSplitGenotypes.put("genotype", new BasicDBObject("$map", splitMapping));
+    	pipeline.add(new BasicDBObject("$project", projectSplitGenotypes));
+    	
+    	// Stage 8 : Detect heterozygotes
+    	BasicDBList genotypeElements = new BasicDBList();  // TODO : Ploidy ?
+    	genotypeElements.add(new BasicDBObject("$arrayElemAt", Arrays.asList("$genotype", 0)));
+    	genotypeElements.add(new BasicDBObject("$arrayElemAt", Arrays.asList("$genotype", 1)));
+    	BasicDBObject addHeterozygote = new BasicDBObject("heterozygote", new BasicDBObject("$ne", genotypeElements));
+    	
+    	// Stage 9 : Unwind alleles
+    	pipeline.add(new BasicDBObject("$unwind", "$genotype"));
+    	
+    	// Stage 10 : Group by allele
+    	BasicDBObject groupAllele = new BasicDBObject();
+    	BasicDBObject groupAlleleId = new BasicDBObject();
+    	groupAlleleId.put("variant", "$_id");
+    	groupAlleleId.put("population", "$population");
+    	groupAlleleId.put("allele", "$genotype");
+    	groupAllele.put("_id", groupAlleleId);
+    	groupAllele.put("sampleSize", new BasicDBObject("$first", "$sampleSize"));
+    	groupAllele.put("alleleCount", new BasicDBObject("$sum", 1));
+    	groupAllele.put("heterozygoteCount", new BasicDBObject("$sum", new BasicDBObject("$toInt", "$heterozygote")));
+    	pipeline.add(new BasicDBObject("$group", groupAllele));
+    	
+    	// Stage 11 : Group by population
+    	BasicDBObject groupPopulation = new BasicDBObject();
+    	BasicDBObject groupPopulationId = new BasicDBObject();
+    	groupPopulationId.put("variant", "$_id.variant");
+    	groupPopulationId.put("population", "$_id.population");
+    	groupPopulation.put("_id", groupPopulationId);
+    	groupPopulation.put("sampleSize", new BasicDBObject("$first", "$sampleSize"));
+    	groupPopulation.put("alleleMax", new BasicDBObject("$max", "$_id.allele"));
+    	
+    	BasicDBObject groupPopulationAllele = new BasicDBObject();
+    	groupPopulationAllele.put("allele", "$_id.allele");
+    	BasicDBObject alleleFrequencyOperation = new BasicDBObject("$divide", Arrays.asList("$alleleCount", new BasicDBObject("$multiply", Arrays.asList("$sampleSize", 2))));
+    	BasicDBObject hetFrequencyOperation = new BasicDBObject("$divide", Arrays.asList("$heterozygoteCount", "$sampleSize"));
+    	groupPopulationAllele.put("alleleFrequency", alleleFrequencyOperation);
+    	groupPopulationAllele.put("heterozygoteFrequency", hetFrequencyOperation);
+    	
+    	groupPopulation.put("alleles", new BasicDBObject("$push", groupPopulationAllele));
+    	pipeline.add(new BasicDBObject("$group", groupPopulation));
+    	
+    	// Stage 12 : Group by variant
+    	BasicDBObject groupVariant = new BasicDBObject();
+    	groupVariant.put("_id", "$_id.variant");
+    	groupVariant.put("alleleMax", new BasicDBObject("$max", "$alleleMax"));
+    	BasicDBObject groupVariantPopulation = new BasicDBObject();
+    	groupVariantPopulation.put("sampleSize", "$sampleSize");
+    	groupVariantPopulation.put("alleles", "$alleles");
+    	groupVariant.put("populations", new BasicDBObject("$push", groupVariantPopulation));
+    	pipeline.add(new BasicDBObject("$group", groupVariant));
+    	
+    	return pipeline;
+    }
+    
+    private BasicDBList getFullPathToGenotypes(String sModule, int projId, Collection<String> selectedIndividuals){
+    	BasicDBList result = new BasicDBList();
+    	TreeMap<String, ArrayList<GenotypingSample>> individualToSampleListMap = MgdbDao.getSamplesByIndividualForProject(sModule, projId, selectedIndividuals);
+    	Iterator<String> indIt = selectedIndividuals.iterator();
+        while (indIt.hasNext()) {
+            String individual = indIt.next();
+            List<GenotypingSample> individualSamples = individualToSampleListMap.get(individual);
+            for (int k=0; k<individualSamples.size(); k++) {    // this loop is executed only once for single-run projects
+                GenotypingSample individualSample = individualSamples.get(k);
+                String pathToGT = individualSample.getId() + "." + SampleGenotype.FIELDNAME_GENOTYPECODE;
+                String fullPathToGT = "$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES/* + (int) ((individualSample.getId() - 1) / 100)*/ + "." + pathToGT;
+                result.add(fullPathToGT);
+            }
+        }
+        return result;
+    }
+    
     @Override
     public Map<Long, Integer> selectionVcfFieldPlotData(GigwaVcfFieldPlotRequest gvfpr) throws Exception {
 		long before = System.currentTimeMillis();

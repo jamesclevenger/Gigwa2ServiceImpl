@@ -786,10 +786,10 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
         if (finalMatchList.size() > 0)
              pipeline.add(new BasicDBObject("$match", new BasicDBObject("$and", finalMatchList)));
 
-//        if (nNextCallCount == 1) {
-//            try { System.out.println(new ObjectMapper().writeValueAsString(pipeline)); }
-//            catch (Exception ignored) {}
-//        }
+        /*if (nNextCallCount == 1) {
+            try { System.out.println(new ObjectMapper().writeValueAsString(pipeline)); }
+            catch (Exception ignored) {}
+        }*/
         return pipeline;
     }
 
