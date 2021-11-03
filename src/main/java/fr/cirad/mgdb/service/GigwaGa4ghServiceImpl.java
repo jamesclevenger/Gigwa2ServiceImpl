@@ -1497,6 +1497,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		
 		List<BasicDBObject> baseQuery = buildFstQuery(gdr);
 
+		System.out.println(usedVarCollName);
 		for (int i=0; i<gdr.getDisplayedRangeIntervalCount(); i++)
 		{
 			BasicDBObject initialMatchStage = new BasicDBObject();
@@ -1540,6 +1541,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	        			
 	        			while (it.hasNext()) {
 	        				Document variantResult = it.next();
+	        				//System.out.println(0);
 	        				
 	        				List<Document> populations = variantResult.getList("populations", Document.class);
 	        				if (populations.size() < 2) {
@@ -1574,11 +1576,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	        					
 	        					for (Document alleleResult : alleles) {
 	        						int allele = alleleResult.getInteger("allele");
-	        						double alleleFrequency = alleleResult.getDouble("alleleFrequency");
-	        						double heterozygoteFrequency = alleleResult.getDouble("heterozygoteFrequency");
-	        						
-	        						alleleFrequencies[allele][popIndex] = alleleFrequency;
-	        						hetFrequencies[allele][popIndex] = heterozygoteFrequency;
+	        						alleleFrequencies[allele][popIndex] = alleleResult.getDouble("alleleFrequency");
+	        						hetFrequencies[allele][popIndex] = alleleResult.getDouble("heterozygoteFrequency");
 	        					}
 	        					
 	        					sampleSizes[popIndex] = sampleSize;
@@ -1624,14 +1623,15 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
     							// c = h¯/2
     							double gameteVariance = averageHetFrequency / 2;
-
+    							
+    							System.out.println("pop: " + popIndex + ", allele: " + allele + ", r=" + numPopulations + ", n¯=" + averageSampleSize + ", nc=" + sampleSizeCorrection + ", p¯=" + averageAlleleFrequency + ", h¯=" + averageHetFrequency + ", s²=" + alleleVariance + ", a=" + populationVariance + ", b=" + individualVariance + ", c=" + gameteVariance);
+    							
     							if (populationVariance != 0 && individualVariance != 0 && gameteVariance != 0 && !Double.isNaN(populationVariance) && !Double.isNaN(individualVariance) && !Double.isNaN(gameteVariance)) {
     								weightedFstSum += populationVariance;
     								fstWeight += populationVariance + individualVariance + gameteVariance;
     							}
 	        				}
 	        			}
-	        			System.out.println(rangeMin + (chunkIndex*intervalSize) + " : " + weightedFstSum + "/" + fstWeight + " = " + weightedFstSum / fstWeight);
 	        			
 	        			result.put(rangeMin + (chunkIndex*intervalSize), weightedFstSum / fstWeight);
 	        			finalProgress.setCurrentStepProgress((short) result.size() * 100 / gdr.getDisplayedRangeIntervalCount());
@@ -1671,7 +1671,33 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	// Stage 1 : placeholder for initial match stage
     	pipeline.add(null);
     	
-    	// Stage 2 : Get populations genotypes
+    	// Stage 2 : Lookup from temp collection to variantRunData
+    	BasicDBObject lookup = new BasicDBObject();
+    	lookup.put("from", "variantRunData");
+    	lookup.put("localField", "_id");
+    	lookup.put("foreignField", "_id.vi");
+    	lookup.put("as", "data");
+    	pipeline.add(new BasicDBObject("$lookup", lookup));
+    	
+    	// Stage 3 : Unwind data
+    	pipeline.add(new BasicDBObject("$unwind", "$data"));
+    	
+    	// Stage 4 : Keep only the right project
+    	pipeline.add(new BasicDBObject("$match", new BasicDBObject("data._id.pi", projId)));
+    	
+    	// Stage 5 : Group runs
+    	BasicDBObject groupRuns = new BasicDBObject();
+    	groupRuns.put("_id", "$_id");
+    	groupRuns.put("sp", new BasicDBObject("$addToSet", "$data.sp"));
+    	pipeline.add(new BasicDBObject("$group", groupRuns));
+    	
+    	// Stage 6 : Weed out incoherent genotypes between runs
+    	pipeline.add(new BasicDBObject("$match", new BasicDBObject("sp", new BasicDBObject("$size", 1))));
+    	
+    	// Stage 7 : Project onto the remaining genotypes
+    	pipeline.add(new BasicDBObject("$project", new BasicDBObject("sp", new BasicDBObject("$arrayElemAt", Arrays.asList("$sp", 0)))));
+    	
+    	// Stage 8 : Get populations genotypes
     	Collection<String> selectedIndividuals1 = gdr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet());
     	Collection<String> selectedIndividuals2 = gdr.getCallSetIds2().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds2().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet());
     	
@@ -1685,28 +1711,28 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	BasicDBObject projectGenotypes = new BasicDBObject("populationGenotypes", populationGenotypes);
     	pipeline.add(new BasicDBObject("$project", projectGenotypes));
     	
-    	// Stage 3 : Split by population
+    	// Stage 9 : Split by population
     	BasicDBObject unwindPopulations = new BasicDBObject();
     	unwindPopulations.put("path", "$populationGenotypes");
     	unwindPopulations.put("includeArrayIndex", "population");
     	pipeline.add(new BasicDBObject("$unwind", unwindPopulations));
     	
     	
-    	// Stage 4 : Compute sample size
+    	// Stage 10 : Compute sample size
     	BasicDBObject sampleSizeMapping = new BasicDBObject();
     	sampleSizeMapping.put("input", "$populationGenotypes");
     	sampleSizeMapping.put("in", new BasicDBObject("$toInt", new BasicDBObject("$ne", Arrays.asList("$$this", null))));
     	BasicDBObject addSampleSize = new BasicDBObject("$sum", new BasicDBObject("$map", sampleSizeMapping));
     	pipeline.add(new BasicDBObject("$addFields", new BasicDBObject("sampleSize", addSampleSize)));
     	
-    	// Stage 5 : Unwind by genotype
+    	// Stage 11 : Unwind by genotype
     	pipeline.add(new BasicDBObject("$unwind", "$populationGenotypes"));
     	
-    	// Stage 6 : Eliminate missing genotypes
+    	// Stage 12 : Eliminate missing genotypes
     	BasicDBObject matchMissing = new BasicDBObject("populationGenotypes", new BasicDBObject("$ne", null));
     	pipeline.add(new BasicDBObject("$match", matchMissing));
     	
-    	// Stage 7 : Split genotype strings
+    	// Stage 13 : Split genotype strings
     	BasicDBObject projectSplitGenotypes = new BasicDBObject();
     	projectSplitGenotypes.put("population", 1);
     	projectSplitGenotypes.put("sampleSize", 1);
@@ -1716,16 +1742,17 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	projectSplitGenotypes.put("genotype", new BasicDBObject("$map", splitMapping));
     	pipeline.add(new BasicDBObject("$project", projectSplitGenotypes));
     	
-    	// Stage 8 : Detect heterozygotes
+    	// Stage 14 : Detect heterozygotes
     	BasicDBList genotypeElements = new BasicDBList();  // TODO : Ploidy ?
     	genotypeElements.add(new BasicDBObject("$arrayElemAt", Arrays.asList("$genotype", 0)));
     	genotypeElements.add(new BasicDBObject("$arrayElemAt", Arrays.asList("$genotype", 1)));
     	BasicDBObject addHeterozygote = new BasicDBObject("heterozygote", new BasicDBObject("$ne", genotypeElements));
+    	pipeline.add(new BasicDBObject("$addFields", addHeterozygote));
     	
-    	// Stage 9 : Unwind alleles
+    	// Stage 15 : Unwind alleles
     	pipeline.add(new BasicDBObject("$unwind", "$genotype"));
     	
-    	// Stage 10 : Group by allele
+    	// Stage 16 : Group by allele
     	BasicDBObject groupAllele = new BasicDBObject();
     	BasicDBObject groupAlleleId = new BasicDBObject();
     	groupAlleleId.put("variant", "$_id");
@@ -1737,7 +1764,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	groupAllele.put("heterozygoteCount", new BasicDBObject("$sum", new BasicDBObject("$toInt", "$heterozygote")));
     	pipeline.add(new BasicDBObject("$group", groupAllele));
     	
-    	// Stage 11 : Group by population
+    	// Stage 17 : Group by population
     	BasicDBObject groupPopulation = new BasicDBObject();
     	BasicDBObject groupPopulationId = new BasicDBObject();
     	groupPopulationId.put("variant", "$_id.variant");
@@ -1756,7 +1783,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	groupPopulation.put("alleles", new BasicDBObject("$push", groupPopulationAllele));
     	pipeline.add(new BasicDBObject("$group", groupPopulation));
     	
-    	// Stage 12 : Group by variant
+    	// Stage 18 : Group by variant
     	BasicDBObject groupVariant = new BasicDBObject();
     	groupVariant.put("_id", "$_id.variant");
     	groupVariant.put("alleleMax", new BasicDBObject("$max", "$alleleMax"));
