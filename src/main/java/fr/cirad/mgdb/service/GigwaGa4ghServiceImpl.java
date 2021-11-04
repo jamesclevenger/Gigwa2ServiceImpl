@@ -1526,6 +1526,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	        			
 	        			/* Structure of a resulting document : {
 	        			 * 		_id: ...,
+	        			 * 		alleleMax: 1,
 	        			 * 		populations: [
 	        			 * 			{sampleSize: 100, alleles: [
 	        			 * 				{allele: 0, alleleFrequency: 0.45, heterozygoteFrequency: 0.31},
@@ -1541,7 +1542,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	        			
 	        			while (it.hasNext()) {
 	        				Document variantResult = it.next();
-	        				//System.out.println(0);
+	        				String variantId = variantResult.getString("_id");
 	        				
 	        				List<Document> populations = variantResult.getList("populations", Document.class);
 	        				if (populations.size() < 2) {
@@ -1617,14 +1618,14 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     							// b = (n¯ / (n¯-1))(p¯(1-p¯) - s²(r-1) / r - h¯(2n¯-1)/4n¯)
     							double individualVariance = (averageSampleSize / (averageSampleSize - 1)) * (
     									averageAlleleFrequency * (1 - averageAlleleFrequency) -
-    									((numPopulations - 1) / numPopulations) * alleleVariance -
-    									((2*averageSampleSize - 1) / (4*averageSampleSize)) * averageHetFrequency
+    									alleleVariance * (numPopulations-1) / numPopulations -
+    									averageHetFrequency * (2*averageSampleSize - 1) / (4 * averageSampleSize)
     								);
 
     							// c = h¯/2
     							double gameteVariance = averageHetFrequency / 2;
     							
-    							System.out.println("pop: " + popIndex + ", allele: " + allele + ", r=" + numPopulations + ", n¯=" + averageSampleSize + ", nc=" + sampleSizeCorrection + ", p¯=" + averageAlleleFrequency + ", h¯=" + averageHetFrequency + ", s²=" + alleleVariance + ", a=" + populationVariance + ", b=" + individualVariance + ", c=" + gameteVariance);
+    							System.out.println("id: " + variantId + ", allele: " + allele + ", r=" + numPopulations + ", n¯=" + averageSampleSize + ", nc=" + sampleSizeCorrection + ", p¯=" + averageAlleleFrequency + ", h¯=" + averageHetFrequency + ", s²=" + alleleVariance + ", a=" + populationVariance + ", b=" + individualVariance + ", c=" + gameteVariance);
     							
     							if (populationVariance != 0 && individualVariance != 0 && gameteVariance != 0 && !Double.isNaN(populationVariance) && !Double.isNaN(individualVariance) && !Double.isNaN(gameteVariance)) {
     								weightedFstSum += populationVariance;
@@ -1633,6 +1634,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	        				}
 	        			}
 	        			
+	        			//System.out.println((gdr.getDisplayedRangeMin() + (chunkIndex*intervalSize)) + "-" + (chunkIndex < gdr.getDisplayedRangeIntervalCount() - 1 ? gdr.getDisplayedRangeMin() + ((chunkIndex+1)*intervalSize) : gdr.getDisplayedRangeMax()) + " : " + weightedFstSum + "/" + fstWeight + " = " + weightedFstSum / fstWeight);
 	        			result.put(rangeMin + (chunkIndex*intervalSize), weightedFstSum / fstWeight);
 	        			finalProgress.setCurrentStepProgress((short) result.size() * 100 / gdr.getDisplayedRangeIntervalCount());
             		}
