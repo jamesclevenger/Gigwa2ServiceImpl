@@ -1497,7 +1497,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		
 		List<BasicDBObject> baseQuery = buildFstQuery(gdr);
 
-		System.out.println(usedVarCollName);
 		for (int i=0; i<gdr.getDisplayedRangeIntervalCount(); i++)
 		{
 			BasicDBObject initialMatchStage = new BasicDBObject();
@@ -1625,9 +1624,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     							// c = h¯/2
     							double gameteVariance = averageHetFrequency / 2;
     							
-    							System.out.println("id: " + variantId + ", allele: " + allele + ", r=" + numPopulations + ", n¯=" + averageSampleSize + ", nc=" + sampleSizeCorrection + ", p¯=" + averageAlleleFrequency + ", h¯=" + averageHetFrequency + ", s²=" + alleleVariance + ", a=" + populationVariance + ", b=" + individualVariance + ", c=" + gameteVariance);
+    							//System.out.println("id: " + variantId + ", allele: " + allele + ", r=" + numPopulations + ", n¯=" + averageSampleSize + ", nc=" + sampleSizeCorrection + ", p¯=" + averageAlleleFrequency + ", h¯=" + averageHetFrequency + ", s²=" + alleleVariance + ", a=" + populationVariance + ", b=" + individualVariance + ", c=" + gameteVariance);
     							
-    							if (populationVariance != 0 && individualVariance != 0 && gameteVariance != 0 && !Double.isNaN(populationVariance) && !Double.isNaN(individualVariance) && !Double.isNaN(gameteVariance)) {
+    							if (!Double.isNaN(populationVariance) && !Double.isNaN(individualVariance) && !Double.isNaN(gameteVariance)) {
     								weightedFstSum += populationVariance;
     								fstWeight += populationVariance + individualVariance + gameteVariance;
     							}
