@@ -1673,10 +1673,20 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         boolean fIsMultiRunProject = genotypingProject.getRuns().size() > 1;
         boolean fGotMultiSampleIndividuals = false;
         
-        Collection<String> selectedIndividuals1 = gdr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet());
-    	Collection<String> selectedIndividuals2 = gdr.getCallSetIds2().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds2().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet());
-        TreeMap<String, ArrayList<GenotypingSample>> individualToSampleListMap = MgdbDao.getSamplesByIndividualForProject(sModule, projId, selectedIndividuals1);
-        individualToSampleListMap.putAll(MgdbDao.getSamplesByIndividualForProject(sModule, projId, selectedIndividuals2));
+        List<Collection<String>> selectedIndividuals = new ArrayList<Collection<String>>();
+        if (gdr.getDisplayedAdditionalGroups() == null) {
+        	selectedIndividuals.add(gdr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
+        	selectedIndividuals.add(gdr.getCallSetIds2().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds2().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
+        } else {
+        	for (Collection<String> group : gdr.getDisplayedAdditionalGroups()) {
+        		selectedIndividuals.add(group.size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : group.stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
+        	}
+        }
+        TreeMap<String, ArrayList<GenotypingSample>> individualToSampleListMap = new TreeMap<String, ArrayList<GenotypingSample>>();
+        for (Collection<String> group : selectedIndividuals) {
+        	individualToSampleListMap.putAll(MgdbDao.getSamplesByIndividualForProject(sModule, projId, group));
+        }
+        
         
         for (ArrayList<GenotypingSample> samplesForAGivenIndividual : individualToSampleListMap.values()) {
             if (samplesForAGivenIndividual.size() > 1) {
@@ -1763,13 +1773,11 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	    	pipeline.add(new BasicDBObject("$group", groupRuns));
     	}
     	
-    	// Stage 14 : Get populations genotypes
-    	BasicDBList genotypes1 = getFullPathToGenotypes(sModule, projId, selectedIndividuals1, individualToSampleListMap);
-    	BasicDBList genotypes2 = getFullPathToGenotypes(sModule, projId, selectedIndividuals2, individualToSampleListMap);
-    	
+    	// Stage 14 : Get populations genotypes    	
     	BasicDBList populationGenotypes = new BasicDBList();
-    	populationGenotypes.add(genotypes1);
-    	populationGenotypes.add(genotypes2);
+    	for (Collection<String> group : selectedIndividuals) {
+    		populationGenotypes.add(getFullPathToGenotypes(sModule, projId, group, individualToSampleListMap));
+    	}
     	
     	BasicDBObject projectGenotypes = new BasicDBObject("populationGenotypes", populationGenotypes);
     	pipeline.add(new BasicDBObject("$project", projectGenotypes));
@@ -1779,7 +1787,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	unwindPopulations.put("path", "$populationGenotypes");
     	unwindPopulations.put("includeArrayIndex", "population");
     	pipeline.add(new BasicDBObject("$unwind", unwindPopulations));
-    	
     	
     	// Stage 16 : Compute sample size
     	BasicDBObject sampleSizeMapping = new BasicDBObject();
