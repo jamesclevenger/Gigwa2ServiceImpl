@@ -678,7 +678,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             LOG.info("countVariants found " + count + " results in " + (System.currentTimeMillis() - before) / 1000d + "s");
         }
         
-	if (!fSelectionAlreadyExists)
 	    progress.markAsComplete();
         if (progress.isAborted()) {
             return 0l;
