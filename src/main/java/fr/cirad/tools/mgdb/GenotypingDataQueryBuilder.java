@@ -461,7 +461,13 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
             }
 
             int nMaxNumberOfAllelesForOneVariant = maxAlleleCount > 0 ? maxAlleleCount : genotypingProject.getAlleleCounts().last(), nPloidy = genotypingProject.getPloidyLevel();
-            int nNumberOfPossibleGenotypes = (int) (nMaxNumberOfAllelesForOneVariant + MathUtils.factorial(nMaxNumberOfAllelesForOneVariant)/(MathUtils.factorial(nPloidy)*MathUtils.factorial(nMaxNumberOfAllelesForOneVariant-nPloidy)));
+            int nNumberOfPossibleGenotypes;
+            try {
+                nNumberOfPossibleGenotypes = (int) (nMaxNumberOfAllelesForOneVariant + MathUtils.factorial(nMaxNumberOfAllelesForOneVariant)/(MathUtils.factorial(nPloidy)*MathUtils.factorial(nMaxNumberOfAllelesForOneVariant-nPloidy)));
+            }
+            catch (ArithmeticException ae) {    // nMaxNumberOfAllelesForOneVariant must be too large for its factorial to be calculated
+                nNumberOfPossibleGenotypes = Integer.MAX_VALUE;
+            }
             double maxMissingGenotypeCount = selectedIndividuals[g].size() * missingData[g] / 100;
             if ("$ne".equals(cleanOperator[g]) && !fNegateMatch[g]) {
                 if (selectedIndividuals[g].size() - maxMissingGenotypeCount > nNumberOfPossibleGenotypes) {

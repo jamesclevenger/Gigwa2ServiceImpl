@@ -52,6 +52,7 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -61,6 +62,7 @@ import org.apache.avro.AvroRemoteException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.ArrayUtils;
 import org.apache.log4j.Logger;
 import org.bson.Document;
 import org.ga4gh.methods.GAException;
@@ -689,7 +691,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             LOG.info("countVariants found " + count + " results in " + (System.currentTimeMillis() - before) / 1000d + "s");
         }
         
-	if (!fSelectionAlreadyExists)
 	    progress.markAsComplete();
         if (progress.isAborted()) {
             return 0l;
@@ -3141,17 +3142,11 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     public TreeMap<String, HashMap<String, String>> getExportFormats() {
         TreeMap<String, HashMap<String, String>> exportFormats = new TreeMap<>();
         try {
-            for (IExportHandler exportHandler : AbstractIndividualOrientedExportHandler.getIndividualOrientedExportHandlers().values()) {
+            for (IExportHandler exportHandler : Stream.of(AbstractIndividualOrientedExportHandler.getIndividualOrientedExportHandlers().values(), AbstractMarkerOrientedExportHandler.getMarkerOrientedExportHandlers().values()).flatMap(Collection::stream).collect(Collectors.toList())) {
                 HashMap<String, String> info = new HashMap<>();
                 info.put("desc", exportHandler.getExportFormatDescription());
-                info.put("dataFileExtentions", StringUtils.join(exportHandler.getExportDataFileExtensions(), ";"));
-                info.put("supportedVariantTypes", StringUtils.join(exportHandler.getSupportedVariantTypes(), ";"));
-                exportFormats.put(exportHandler.getExportFormatName(), info);
-            }
-            for (IExportHandler exportHandler : AbstractMarkerOrientedExportHandler.getMarkerOrientedExportHandlers().values()) {
-                HashMap<String, String> info = new HashMap<>();
-                info.put("desc", exportHandler.getExportFormatDescription());
-                info.put("dataFileExtentions", StringUtils.join(exportHandler.getExportDataFileExtensions(), ";"));
+                info.put("supportedPloidyLevels", StringUtils.join(ArrayUtils.toObject(exportHandler.getSupportedPloidyLevels()), ";"));
+                info.put("dataFileExtensions", StringUtils.join(exportHandler.getExportDataFileExtensions(), ";"));
                 info.put("supportedVariantTypes", StringUtils.join(exportHandler.getSupportedVariantTypes(), ";"));
                 exportFormats.put(exportHandler.getExportFormatName(), info);
             }
