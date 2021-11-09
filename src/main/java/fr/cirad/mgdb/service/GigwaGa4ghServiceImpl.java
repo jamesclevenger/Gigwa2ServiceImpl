@@ -1032,6 +1032,17 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         MongoCollection<Document> tmpVarColl = getTemporaryVariantCollection(sModule, token, false);
         long nTempVarCount = mongoTemplate.count(new Query(), tmpVarColl.getNamespace().getCollectionName());
         final BasicDBList variantQueryDBList = (BasicDBList) buildVariantDataQuery(gsver, getSequenceIDsBeingFilteredOn(gsver.getRequest().getSession(), sModule));
+        for (Object ob:variantQueryDBList) {
+            BasicDBObject object = (BasicDBObject) ob;
+            
+            if (object.get("_id") != null) {
+                Object inFilter = object.remove("_id");
+                object.append("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, inFilter);
+
+            }
+        }
+        
+        
 
 		if (nGroupsToFilterGenotypingDataOn > 0 && nTempVarCount == 0)
 		{
@@ -1326,6 +1337,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     			+ (gsvr.getEnd() == null ? "" : gsvr.getEnd()) + ":"
     			+ gsvr.getAlleleCount() + ":"
     			+ gsvr.getGeneName() + ":"
+                        + gsvr.getSelectedVariantIds() + ":"
     			
     			+ gsvr.getCallSetIds() + ":"
     			+ gsvr.getAnnotationFieldThresholds() + ":"
@@ -3162,7 +3174,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
         values = collection.distinct("_id", whereQuery, String.class).into(new ArrayList<>());
         
-    	if (values.size() > 10)
+    	if (values.size() > 20)
     		return Arrays.asList("Too many results (" + values.size() + ") , please refine search!");
 
         return values;
