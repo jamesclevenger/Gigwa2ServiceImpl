@@ -345,7 +345,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public ArrayList<Object> buildVariantDataQuery(GigwaSearchVariantsRequest gsvr, List<String> externallySelectedSeqs) {
+    public BasicDBList buildVariantDataQuery(GigwaSearchVariantsRequest gsvr, List<String> externallySelectedSeqs) {
         String info[] = GigwaSearchVariantsRequest.getInfoFromId(gsvr.getVariantSetId(), 2);
         String sModule = info[0];
         int projId = Integer.parseInt(info[1]);
@@ -824,7 +824,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     List<DBObject> toAdd = new ArrayList<>(), toRemove = new ArrayList<>();
                     for (Object filter : initialMatchForVariantColl)
                     {
-                        Object variantIdFilter = ((BasicDBObject) filter).get("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID);
+                        Object variantIdFilter = ((DBObject) filter).get("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID);
                         if (variantIdFilter != null)
                         {
                             toAdd.add(new BasicDBObject("_id", variantIdFilter));
@@ -1033,17 +1033,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         MongoCollection<Document> tmpVarColl = getTemporaryVariantCollection(sModule, token, false);
         long nTempVarCount = mongoTemplate.count(new Query(), tmpVarColl.getNamespace().getCollectionName());
         final BasicDBList variantQueryDBList = (BasicDBList) buildVariantDataQuery(gsver, getSequenceIDsBeingFilteredOn(gsver.getRequest().getSession(), sModule));
-        for (Object ob:variantQueryDBList) {
-            BasicDBObject object = (BasicDBObject) ob;
-            
-            if (object.get("_id") != null) {
-                Object inFilter = object.remove("_id");
-                object.append("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, inFilter);
-
-            }
-        }
-        
-        
 
 		if (nGroupsToFilterGenotypingDataOn > 0 && nTempVarCount == 0)
 		{
@@ -1338,7 +1327,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     			+ (gsvr.getEnd() == null ? "" : gsvr.getEnd()) + ":"
     			+ gsvr.getAlleleCount() + ":"
     			+ gsvr.getGeneName() + ":"
-                        + gsvr.getSelectedVariantIds() + ":"
+                + gsvr.getSelectedVariantIds() + ":"
     			
     			+ gsvr.getCallSetIds() + ":"
     			+ gsvr.getAnnotationFieldThresholds() + ":"
