@@ -1814,7 +1814,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	// Stage 16 : Compute sample size
     	BasicDBObject sampleSizeMapping = new BasicDBObject();
     	sampleSizeMapping.put("input", "$" + FST_S14_POPULATIONGENOTYPES);
-    	sampleSizeMapping.put("in", new BasicDBObject("$toInt", new BasicDBObject("$ne", Arrays.asList("$$this", null))));
+    	sampleSizeMapping.put("in", new BasicDBObject("$cmp", Arrays.asList("$$this", null)));
     	BasicDBObject addSampleSize = new BasicDBObject("$sum", new BasicDBObject("$map", sampleSizeMapping));
     	pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(FST_RES_SAMPLESIZE, addSampleSize)));
     	
