@@ -1520,7 +1520,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             Thread t = new Thread() {
             	public void run() {
             		if (!finalProgress.isAborted()) {
-	        			Iterator<Document> it = mongoTemplate.getCollection(usedVarCollName).aggregate(windowQuery).iterator();
+	        			Iterator<Document> it = mongoTemplate.getCollection(usedVarCollName).aggregate(windowQuery).allowDiskUse(isAggregationAllowedToUseDisk()).iterator();
 	        			
 	        			/* Structure of a resulting document : {
 	        			 * 		_id: ...,
@@ -1540,16 +1540,16 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	        			
 	        			while (it.hasNext()) {
 	        				Document variantResult = it.next();
-	        				String variantId = variantResult.getString("_id");
+	        				//String variantId = variantResult.getString("_id");
 	        				
-	        				List<Document> populations = variantResult.getList("populations", Document.class);
+	        				List<Document> populations = variantResult.getList(FST_RES_POPULATIONS, Document.class);
 	        				if (populations.size() < 2) {
 	        					// Can not compute Fst with a single population
 	        					// One of the populations has no valid data
 	        					continue;
 	        				}
 	        				int numPopulations = populations.size();  // r : Number of samples to consider
-	        				int numAlleles = variantResult.getInteger("alleleMax") + 1;
+	        				int numAlleles = variantResult.getInteger(FST_RES_ALLELEMAX) + 1;
 	        				
 	        				// Transposition to [allele][sample] instead of the original [sample][allele] is important to simplify further computations
 	        				int[] sampleSizes = new int[numPopulations];  // n_i = sampleSizes[population] : Size of the population samples (with missing data filtered out)
@@ -1570,13 +1570,13 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         					
         					int popIndex = 0;
 	        				for (Document populationResult : populations) {
-	        					int sampleSize = populationResult.getInteger("sampleSize");
-	        					List<Document> alleles = populationResult.getList("alleles", Document.class);
+	        					int sampleSize = populationResult.getInteger(FST_RES_SAMPLESIZE);
+	        					List<Document> alleles = populationResult.getList(FST_RES_ALLELES, Document.class);
 	        					
 	        					for (Document alleleResult : alleles) {
-	        						int allele = alleleResult.getInteger("allele");
-	        						alleleFrequencies[allele][popIndex] = alleleResult.getDouble("alleleFrequency");
-	        						hetFrequencies[allele][popIndex] = alleleResult.getDouble("heterozygoteFrequency");
+	        						int allele = alleleResult.getInteger(FST_RES_ALLELEID);
+	        						alleleFrequencies[allele][popIndex] = alleleResult.getDouble(FST_RES_ALLELEFREQUENCY);
+	        						hetFrequencies[allele][popIndex] = alleleResult.getDouble(FST_RES_HETEROZYGOTEFREQUENCY);
 	        					}
 	        					
 	        					sampleSizes[popIndex] = sampleSize;
@@ -1661,6 +1661,30 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		return new TreeMap<Long, Double>(result);
     }
     
+    private final String FST_S2_DATA = "dt";
+    private final String FST_S5_SPKEYVAL = "sk";
+    private final String FST_S8_SAMPLE = "sa";
+    private final String FST_S9_GENOTYPE = "gy";
+    private final String FST_S10_VARIANTID = "vi";
+    private final String FST_S10_INDIVIDUALID = "ii";
+    private final String FST_S10_SAMPLEINDEX = "sx";
+    private final String FST_S14_POPULATIONGENOTYPES = "pg";
+    private final String FST_S15_POPULATION = "pp";
+    private final String FST_S19_GENOTYPE = "gn";
+    private final String FST_S20_HETEROZYGOTE = "ht";
+    private final String FST_S22_VARIANTID = "vi";
+    private final String FST_S22_POPULATIONID = "pp";
+    private final String FST_S22_ALLELECOUNT = "ac";
+    private final String FST_S22_HETEROZYGOTECOUNT = "hc";
+    
+    private final String FST_RES_SAMPLESIZE = "ss";
+    private final String FST_RES_ALLELEID = "al";
+    private final String FST_RES_ALLELEMAX = "am";
+    private final String FST_RES_ALLELEFREQUENCY = "af";
+    private final String FST_RES_HETEROZYGOTEFREQUENCY = "hf";
+    private final String FST_RES_ALLELES = "as";
+    private final String FST_RES_POPULATIONS = "ps";
+    
     private List<BasicDBObject> buildFstQuery(GigwaDensityRequest gdr) {
     	String info[] = GigwaSearchVariantsRequest.getInfoFromId(gdr.getVariantSetId(), 2);
         String sModule = info[0];
@@ -1704,26 +1728,26 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	lookup.put("from", "variantRunData");
     	lookup.put("localField", "_id");
     	lookup.put("foreignField", "_id.vi");
-    	lookup.put("as", "data");
+    	lookup.put("as", FST_S2_DATA);
     	pipeline.add(new BasicDBObject("$lookup", lookup));
     	
     	// Stage 3 : Unwind data
-    	pipeline.add(new BasicDBObject("$unwind", "$data"));
+    	pipeline.add(new BasicDBObject("$unwind", "$" + FST_S2_DATA));
     	
     	// Stage 4 : Keep only the right project
-    	pipeline.add(new BasicDBObject("$match", new BasicDBObject("data._id.pi", projId)));
+    	pipeline.add(new BasicDBObject("$match", new BasicDBObject(FST_S2_DATA + "._id.pi", projId)));
     	
     	if (fGotMultiSampleIndividuals) {
     		// Stage 5 : Convert samples to an array
-    		pipeline.add(new BasicDBObject("$addFields", new BasicDBObject("spkeyval", new BasicDBObject("$objectToArray", "$data." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES))));
+    		pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(FST_S5_SPKEYVAL, new BasicDBObject("$objectToArray", "$" + FST_S2_DATA + "." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES))));
     		
     		// Stage 6 : Unwind samples
-    		pipeline.add(new BasicDBObject("$unwind", "$spkeyval"));
+    		pipeline.add(new BasicDBObject("$unwind", "$" + FST_S5_SPKEYVAL));
     		
     		// Stage 7 : Convert key and value
     		BasicDBObject spkeyval = new BasicDBObject();
-    		spkeyval.put("sampleid", new BasicDBObject("$toInt", "$spkeyval.k"));
-    		spkeyval.put("genotype", "$spkeyval.v.gt");
+    		spkeyval.put("sampleid", new BasicDBObject("$toInt", "$" + FST_S5_SPKEYVAL + ".k"));
+    		spkeyval.put("genotype", "$" + FST_S5_SPKEYVAL + ".v.gt");
     		pipeline.add(new BasicDBObject("$project", spkeyval));
     		
     		// Stage 8 : Lookup samples
@@ -1731,23 +1755,23 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     		sampleLookup.put("from", "samples");
     		sampleLookup.put("localField", "sampleid");
     		sampleLookup.put("foreignField", "_id");
-    		sampleLookup.put("as", "sample");
+    		sampleLookup.put("as", FST_S8_SAMPLE);
     		pipeline.add(new BasicDBObject("$lookup", sampleLookup));
     		
     		// Stage 9 : Get first sample (shouldn't get more than one anyway)
     		BasicDBObject firstSample = new BasicDBObject();
-    		firstSample.put("genotype", 1);
-    		firstSample.put("sample", new BasicDBObject("$arrayElemAt", Arrays.asList("$sample", 0)));
+    		firstSample.put(FST_S9_GENOTYPE, 1);
+    		firstSample.put(FST_S8_SAMPLE, new BasicDBObject("$arrayElemAt", Arrays.asList("$" + FST_S8_SAMPLE, 0)));
     		pipeline.add(new BasicDBObject("$project", firstSample));
     		
     		// Stage 10 : Regroup individual runs
     		BasicDBObject individualGroup = new BasicDBObject();
     		BasicDBObject individualGroupId = new BasicDBObject();
-    		individualGroupId.put("variant", "$_id");
-    		individualGroupId.put("individual", "$sample." + GenotypingSample.FIELDNAME_INDIVIDUAL);
+    		individualGroupId.put(FST_S10_VARIANTID, "$_id");
+    		individualGroupId.put(FST_S10_INDIVIDUALID, "$" + FST_S8_SAMPLE + "." + GenotypingSample.FIELDNAME_INDIVIDUAL);
     		individualGroup.put("_id", individualGroupId);
-    		individualGroup.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$addToSet", "$genotype"));
-    		individualGroup.put("sampleIndex", new BasicDBObject("$min", "$sample._id"));
+    		individualGroup.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$addToSet", "$" + FST_S9_GENOTYPE));
+    		individualGroup.put(FST_S10_SAMPLEINDEX, new BasicDBObject("$min", "$" + FST_S8_SAMPLE + "._id"));
     		pipeline.add(new BasicDBObject("$group", individualGroup));
     		
     		// Stage 11 : Weed out incoherent genotypes
@@ -1755,10 +1779,10 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     		
     		// Stage 12 : Group back by variant
     		BasicDBObject variantGroup = new BasicDBObject();
-    		variantGroup.put("_id", "$_id.variant");
+    		variantGroup.put("_id", "$_id." + FST_S10_VARIANTID);
     		BasicDBObject spObject = new BasicDBObject();
-    		spObject.put("k", new BasicDBObject("$toString", "$sampleIndex"));
-    		spObject.put("v", new BasicDBObject("gt", new BasicDBObject("$arrayElemAt", Arrays.asList("$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES, 0))));
+    		spObject.put("k", new BasicDBObject("$toString", "$" + FST_S10_SAMPLEINDEX));
+    		spObject.put("v", new BasicDBObject(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$arrayElemAt", Arrays.asList("$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES, 0))));
     		variantGroup.put("sp", new BasicDBObject("$push", spObject));
     		pipeline.add(new BasicDBObject("$group", variantGroup));
     		
@@ -1768,7 +1792,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	    	// Stage 5 : Group runs
 	    	BasicDBObject groupRuns = new BasicDBObject();
 	    	groupRuns.put("_id", "$_id");
-	    	groupRuns.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$first", "$data." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES));
+	    	groupRuns.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$first", "$" + FST_S2_DATA + "." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES));
 	    	pipeline.add(new BasicDBObject("$group", groupRuns));
     	}
     	
@@ -1778,88 +1802,88 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     		populationGenotypes.add(getFullPathToGenotypes(sModule, projId, group, individualToSampleListMap));
     	}
     	
-    	BasicDBObject projectGenotypes = new BasicDBObject("populationGenotypes", populationGenotypes);
+    	BasicDBObject projectGenotypes = new BasicDBObject(FST_S14_POPULATIONGENOTYPES, populationGenotypes);
     	pipeline.add(new BasicDBObject("$project", projectGenotypes));
     	
     	// Stage 15 : Split by population
     	BasicDBObject unwindPopulations = new BasicDBObject();
-    	unwindPopulations.put("path", "$populationGenotypes");
-    	unwindPopulations.put("includeArrayIndex", "population");
+    	unwindPopulations.put("path", "$" + FST_S14_POPULATIONGENOTYPES);
+    	unwindPopulations.put("includeArrayIndex", FST_S15_POPULATION);
     	pipeline.add(new BasicDBObject("$unwind", unwindPopulations));
     	
     	// Stage 16 : Compute sample size
     	BasicDBObject sampleSizeMapping = new BasicDBObject();
-    	sampleSizeMapping.put("input", "$populationGenotypes");
+    	sampleSizeMapping.put("input", "$" + FST_S14_POPULATIONGENOTYPES);
     	sampleSizeMapping.put("in", new BasicDBObject("$toInt", new BasicDBObject("$ne", Arrays.asList("$$this", null))));
     	BasicDBObject addSampleSize = new BasicDBObject("$sum", new BasicDBObject("$map", sampleSizeMapping));
-    	pipeline.add(new BasicDBObject("$addFields", new BasicDBObject("sampleSize", addSampleSize)));
+    	pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(FST_RES_SAMPLESIZE, addSampleSize)));
     	
     	// Stage 17 : Unwind by genotype
-    	pipeline.add(new BasicDBObject("$unwind", "$populationGenotypes"));
+    	pipeline.add(new BasicDBObject("$unwind", "$" + FST_S14_POPULATIONGENOTYPES));
     	
     	// Stage 18 : Eliminate missing genotypes
-    	BasicDBObject matchMissing = new BasicDBObject("populationGenotypes", new BasicDBObject("$ne", null));
+    	BasicDBObject matchMissing = new BasicDBObject(FST_S14_POPULATIONGENOTYPES, new BasicDBObject("$ne", null));
     	pipeline.add(new BasicDBObject("$match", matchMissing));
     	
     	// Stage 19 : Split genotype strings
     	BasicDBObject projectSplitGenotypes = new BasicDBObject();
-    	projectSplitGenotypes.put("population", 1);
-    	projectSplitGenotypes.put("sampleSize", 1);
+    	projectSplitGenotypes.put(FST_S15_POPULATION, 1);
+    	projectSplitGenotypes.put(FST_RES_SAMPLESIZE, 1);
     	BasicDBObject splitMapping = new BasicDBObject();
-    	splitMapping.put("input", new BasicDBObject("$split", Arrays.asList("$populationGenotypes", "/")));
+    	splitMapping.put("input", new BasicDBObject("$split", Arrays.asList("$" + FST_S14_POPULATIONGENOTYPES, "/")));
     	splitMapping.put("in", new BasicDBObject("$toInt", "$$this"));
-    	projectSplitGenotypes.put("genotype", new BasicDBObject("$map", splitMapping));
+    	projectSplitGenotypes.put(FST_S19_GENOTYPE, new BasicDBObject("$map", splitMapping));
     	pipeline.add(new BasicDBObject("$project", projectSplitGenotypes));
     	
     	// Stage 20 : Detect heterozygotes
     	BasicDBList genotypeElements = new BasicDBList();  // TODO : Ploidy ?
-    	genotypeElements.add(new BasicDBObject("$arrayElemAt", Arrays.asList("$genotype", 0)));
-    	genotypeElements.add(new BasicDBObject("$arrayElemAt", Arrays.asList("$genotype", 1)));
-    	BasicDBObject addHeterozygote = new BasicDBObject("heterozygote", new BasicDBObject("$ne", genotypeElements));
+    	genotypeElements.add(new BasicDBObject("$arrayElemAt", Arrays.asList("$" + FST_S19_GENOTYPE, 0)));
+    	genotypeElements.add(new BasicDBObject("$arrayElemAt", Arrays.asList("$" + FST_S19_GENOTYPE, 1)));
+    	BasicDBObject addHeterozygote = new BasicDBObject(FST_S20_HETEROZYGOTE, new BasicDBObject("$ne", genotypeElements));
     	pipeline.add(new BasicDBObject("$addFields", addHeterozygote));
     	
     	// Stage 21 : Unwind alleles
-    	pipeline.add(new BasicDBObject("$unwind", "$genotype"));
+    	pipeline.add(new BasicDBObject("$unwind", "$" + FST_S19_GENOTYPE));
     	
     	// Stage 22 : Group by allele
     	BasicDBObject groupAllele = new BasicDBObject();
     	BasicDBObject groupAlleleId = new BasicDBObject();
-    	groupAlleleId.put("variant", "$_id");
-    	groupAlleleId.put("population", "$population");
-    	groupAlleleId.put("allele", "$genotype");
+    	groupAlleleId.put(FST_S22_VARIANTID, "$_id");
+    	groupAlleleId.put(FST_S22_POPULATIONID, "$" + FST_S15_POPULATION);
+    	groupAlleleId.put(FST_RES_ALLELEID, "$" + FST_S19_GENOTYPE);
     	groupAllele.put("_id", groupAlleleId);
-    	groupAllele.put("sampleSize", new BasicDBObject("$first", "$sampleSize"));
-    	groupAllele.put("alleleCount", new BasicDBObject("$sum", 1));
-    	groupAllele.put("heterozygoteCount", new BasicDBObject("$sum", new BasicDBObject("$toInt", "$heterozygote")));
+    	groupAllele.put(FST_RES_SAMPLESIZE, new BasicDBObject("$first", "$" + FST_RES_SAMPLESIZE));
+    	groupAllele.put(FST_S22_ALLELECOUNT, new BasicDBObject("$sum", 1));
+    	groupAllele.put(FST_S22_HETEROZYGOTECOUNT, new BasicDBObject("$sum", new BasicDBObject("$toInt", "$" + FST_S20_HETEROZYGOTE)));
     	pipeline.add(new BasicDBObject("$group", groupAllele));
     	
     	// Stage 23 : Group by population
     	BasicDBObject groupPopulation = new BasicDBObject();
     	BasicDBObject groupPopulationId = new BasicDBObject();
-    	groupPopulationId.put("variant", "$_id.variant");
-    	groupPopulationId.put("population", "$_id.population");
+    	groupPopulationId.put(FST_S22_VARIANTID, "$_id." + FST_S22_VARIANTID);
+    	groupPopulationId.put(FST_S22_POPULATIONID, "$_id." + FST_S22_POPULATIONID);
     	groupPopulation.put("_id", groupPopulationId);
-    	groupPopulation.put("sampleSize", new BasicDBObject("$first", "$sampleSize"));
-    	groupPopulation.put("alleleMax", new BasicDBObject("$max", "$_id.allele"));
+    	groupPopulation.put(FST_RES_SAMPLESIZE, new BasicDBObject("$first", "$" + FST_RES_SAMPLESIZE));
+    	groupPopulation.put(FST_RES_ALLELEMAX, new BasicDBObject("$max", "$_id." + FST_RES_ALLELEID));
     	
     	BasicDBObject groupPopulationAllele = new BasicDBObject();
-    	groupPopulationAllele.put("allele", "$_id.allele");
-    	BasicDBObject alleleFrequencyOperation = new BasicDBObject("$divide", Arrays.asList("$alleleCount", new BasicDBObject("$multiply", Arrays.asList("$sampleSize", 2))));
-    	BasicDBObject hetFrequencyOperation = new BasicDBObject("$divide", Arrays.asList("$heterozygoteCount", "$sampleSize"));
-    	groupPopulationAllele.put("alleleFrequency", alleleFrequencyOperation);
-    	groupPopulationAllele.put("heterozygoteFrequency", hetFrequencyOperation);
+    	groupPopulationAllele.put(FST_RES_ALLELEID, "$_id." + FST_RES_ALLELEID);
+    	BasicDBObject alleleFrequencyOperation = new BasicDBObject("$divide", Arrays.asList("$" + FST_S22_ALLELECOUNT, new BasicDBObject("$multiply", Arrays.asList("$" + FST_RES_SAMPLESIZE, 2))));
+    	BasicDBObject hetFrequencyOperation = new BasicDBObject("$divide", Arrays.asList("$" + FST_S22_HETEROZYGOTECOUNT, "$" + FST_RES_SAMPLESIZE));
+    	groupPopulationAllele.put(FST_RES_ALLELEFREQUENCY, alleleFrequencyOperation);
+    	groupPopulationAllele.put(FST_RES_HETEROZYGOTEFREQUENCY, hetFrequencyOperation);
     	
-    	groupPopulation.put("alleles", new BasicDBObject("$push", groupPopulationAllele));
+    	groupPopulation.put(FST_RES_ALLELES, new BasicDBObject("$push", groupPopulationAllele));
     	pipeline.add(new BasicDBObject("$group", groupPopulation));
     	
     	// Stage 24 : Group by variant
     	BasicDBObject groupVariant = new BasicDBObject();
-    	groupVariant.put("_id", "$_id.variant");
-    	groupVariant.put("alleleMax", new BasicDBObject("$max", "$alleleMax"));
+    	groupVariant.put("_id", "$_id." + FST_S22_VARIANTID);
+    	groupVariant.put(FST_RES_ALLELEMAX, new BasicDBObject("$max", "$" + FST_RES_ALLELEMAX));
     	BasicDBObject groupVariantPopulation = new BasicDBObject();
-    	groupVariantPopulation.put("sampleSize", "$sampleSize");
-    	groupVariantPopulation.put("alleles", "$alleles");
-    	groupVariant.put("populations", new BasicDBObject("$push", groupVariantPopulation));
+    	groupVariantPopulation.put(FST_RES_SAMPLESIZE, "$" + FST_RES_SAMPLESIZE);
+    	groupVariantPopulation.put(FST_RES_ALLELES, "$" + FST_RES_ALLELES);
+    	groupVariant.put(FST_RES_POPULATIONS, new BasicDBObject("$push", groupVariantPopulation));
     	pipeline.add(new BasicDBObject("$group", groupVariant));
     	
     	return pipeline;
