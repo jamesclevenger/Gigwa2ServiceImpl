@@ -1481,7 +1481,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			return null;
 		}
 
-		final String mainVarCollName = mongoTemplate.getCollectionName(VariantData.class), usedVarCollName = nTempVarCount == 0 ? mainVarCollName : tmpVarColl.getNamespace().getCollectionName();
+		final String vrdCollName = mongoTemplate.getCollectionName(VariantRunData.class);
+		final boolean useTempColl = (nTempVarCount != 0);
+		final String usedVarCollName = useTempColl ? tmpVarColl.getNamespace().getCollectionName() : vrdCollName;
 		final ConcurrentHashMap<Long, Double> result = new ConcurrentHashMap<Long, Double>();
 
 		if (gdr.getDisplayedRangeMin() == null || gdr.getDisplayedRangeMax() == null)
@@ -1494,7 +1496,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		final long rangeMin = gdr.getDisplayedRangeMin();
 		final ProgressIndicator finalProgress = progress;
 		
-		List<BasicDBObject> baseQuery = buildFstQuery(gdr);
+		List<BasicDBObject> baseQuery = buildFstQuery(gdr, useTempColl);
 
 		for (int i=0; i<gdr.getDisplayedRangeIntervalCount(); i++)
 		{
@@ -1685,15 +1687,15 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     private final String FST_RES_ALLELES = "as";
     private final String FST_RES_POPULATIONS = "ps";
     
-    private List<BasicDBObject> buildFstQuery(GigwaDensityRequest gdr) {
+    private List<BasicDBObject> buildFstQuery(GigwaDensityRequest gdr, boolean useTempColl) {
     	String info[] = GigwaSearchVariantsRequest.getInfoFromId(gdr.getVariantSetId(), 2);
         String sModule = info[0];
         int projId = Integer.parseInt(info[1]);
         
-        MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
-        GenotypingProject genotypingProject = mongoTemplate.findById(Integer.valueOf(projId), GenotypingProject.class);
+        //MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
+        //GenotypingProject genotypingProject = mongoTemplate.findById(Integer.valueOf(projId), GenotypingProject.class);
         
-        boolean fIsMultiRunProject = genotypingProject.getRuns().size() > 1;
+        //boolean fIsMultiRunProject = genotypingProject.getRuns().size() > 1;
         boolean fGotMultiSampleIndividuals = false;
         
         List<Collection<String>> selectedIndividuals = new ArrayList<Collection<String>>();
@@ -1723,24 +1725,34 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	// Stage 1 : placeholder for initial match stage
     	pipeline.add(null);
     	
-    	// Stage 2 : Lookup from temp collection to variantRunData
-    	BasicDBObject lookup = new BasicDBObject();
-    	lookup.put("from", "variantRunData");
-    	lookup.put("localField", "_id");
-    	lookup.put("foreignField", "_id.vi");
-    	lookup.put("as", FST_S2_DATA);
-    	pipeline.add(new BasicDBObject("$lookup", lookup));
-    	
-    	// Stage 3 : Unwind data
-    	pipeline.add(new BasicDBObject("$unwind", "$" + FST_S2_DATA));
-    	
-    	// Stage 4 : Keep only the right project
-    	pipeline.add(new BasicDBObject("$match", new BasicDBObject(FST_S2_DATA + "._id.pi", projId)));
+    	if (useTempColl) {
+	    	// Stage 2 : Lookup from temp collection to variantRunData
+	    	BasicDBObject lookup = new BasicDBObject();
+	    	lookup.put("from", "variantRunData");
+	    	lookup.put("localField", "_id");
+	    	lookup.put("foreignField", "_id.vi");
+	    	lookup.put("as", FST_S2_DATA);
+	    	pipeline.add(new BasicDBObject("$lookup", lookup));
+	    	
+	    	// Stage 3 : Unwind data
+	    	pipeline.add(new BasicDBObject("$unwind", "$" + FST_S2_DATA));
+	    	
+	    	// Stage 4 : Keep only the right project
+	    	pipeline.add(new BasicDBObject("$match", new BasicDBObject(FST_S2_DATA + "._id.pi", projId)));
+    	} else {
+    		// Stage 4 : Keep only the right project
+    		pipeline.add(new BasicDBObject("$match", new BasicDBObject("_id.pi", projId)));
+    	}
     	
     	if (fGotMultiSampleIndividuals) {
-    		// Stage 5 : Convert samples to an array
-    		pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(FST_S5_SPKEYVAL, new BasicDBObject("$objectToArray", "$" + FST_S2_DATA + "." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES))));
-    		
+    		if (useTempColl) {
+	    		// Stage 5 : Convert samples to an array
+	    		pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(FST_S5_SPKEYVAL, new BasicDBObject("$objectToArray", "$" + FST_S2_DATA + "." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES))));
+    		} else {
+    			// Stage 5 : Convert samples to an array
+	    		pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(FST_S5_SPKEYVAL, new BasicDBObject("$objectToArray", "$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES))));	
+    		}
+	    		
     		// Stage 6 : Unwind samples
     		pipeline.add(new BasicDBObject("$unwind", "$" + FST_S5_SPKEYVAL));
     		
@@ -1789,11 +1801,19 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     		// Stage 13 : Convert back to sp object
     		pipeline.add(new BasicDBObject("$project", new BasicDBObject(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$arrayToObject", "$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES))));
     	} else {
-	    	// Stage 5 : Group runs
-	    	BasicDBObject groupRuns = new BasicDBObject();
-	    	groupRuns.put("_id", "$_id");
-	    	groupRuns.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$first", "$" + FST_S2_DATA + "." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES));
-	    	pipeline.add(new BasicDBObject("$group", groupRuns));
+    		if (useTempColl) {
+		    	// Stage 5 : Group runs
+		    	BasicDBObject groupRuns = new BasicDBObject();
+		    	groupRuns.put("_id", "$_id");
+		    	groupRuns.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$first", "$" + FST_S2_DATA + "." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES));
+		    	pipeline.add(new BasicDBObject("$group", groupRuns));
+    		} else {
+    			// Stage 5 : Group runs
+		    	BasicDBObject groupRuns = new BasicDBObject();
+		    	groupRuns.put("_id", "$_id");
+		    	groupRuns.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$first", "$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES));
+		    	pipeline.add(new BasicDBObject("$group", groupRuns));
+    		}
     	}
     	
     	// Stage 14 : Get populations genotypes    	
