@@ -50,6 +50,9 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.DoubleStream;
@@ -1492,14 +1495,16 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
 		final AtomicInteger nTotalTreatedVariantCount = new AtomicInteger(0);
 		final int intervalSize = Math.max(1, (int) ((gdr.getDisplayedRangeMax() - gdr.getDisplayedRangeMin()) / gdr.getDisplayedRangeIntervalCount()));
-		final ArrayList<Thread> threadsToWaitFor = new ArrayList<Thread>();
+		//final ArrayList<Thread> threadsToWaitFor = new ArrayList<Thread>();
 		final long rangeMin = gdr.getDisplayedRangeMin();
 		final ProgressIndicator finalProgress = progress;
 		
 		List<BasicDBObject> baseQuery = buildFstQuery(gdr, useTempColl);
 
-		for (int i=0; i<gdr.getDisplayedRangeIntervalCount(); i++)
-		{
+		int nConcurrentThreads = Math.min(Runtime.getRuntime().availableProcessors(), INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS);
+		ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
+		
+		for (int i=0; i<gdr.getDisplayedRangeIntervalCount(); i++) {
 			BasicDBObject initialMatchStage = new BasicDBObject();
 			initialMatchStage.put(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, gdr.getDisplayedSequence());
 			if (gdr.getDisplayedVariantType() != null)
@@ -1516,8 +1521,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			List<BasicDBObject> windowQuery = new ArrayList<BasicDBObject>(baseQuery);
 			windowQuery.set(0, new BasicDBObject("$match", initialMatchStage));
 			
-			//try { System.out.println(new ObjectMapper().writeValueAsString(windowQuery)); }
-            //catch (Exception ignored) {}
+			try { System.out.println(new ObjectMapper().writeValueAsString(windowQuery)); }
+            catch (Exception ignored) {}
 
             Thread t = new Thread() {
             	public void run() {
@@ -1641,23 +1646,17 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             	}
             };
 
-            if (chunkIndex%INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS  == (INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS-1))
-            	t.run();	// run synchronously
-            else
-            {
-            	threadsToWaitFor.add(t);
-            	t.start();	// run asynchronously for better speed
-            }
+           executor.execute(t);
 		}
+		
+		executor.shutdown();
+		executor.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
 
 		if (progress.isAborted())
 			return null;
 
-		for (Thread ttwf : threadsToWaitFor)	// wait for all threads before moving to next phase
-			ttwf.join();
-
 		progress.setCurrentStepProgress(100);
-		LOG.debug("selectionDensity treated " + nTotalTreatedVariantCount.get() + " variants in " + (System.currentTimeMillis() - before)/1000f + "s");
+		LOG.info("selectionDensity treated " + nTotalTreatedVariantCount.get() + " variants in " + (System.currentTimeMillis() - before)/1000f + "s");
 		progress.markAsComplete();
 
 		return new TreeMap<Long, Double>(result);
