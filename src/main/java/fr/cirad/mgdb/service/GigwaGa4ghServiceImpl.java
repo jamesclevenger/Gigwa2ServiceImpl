@@ -107,6 +107,7 @@ import com.mongodb.MongoCommandException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
+import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Projections;
 
 import fr.cirad.controller.GigwaMethods;
@@ -3156,10 +3157,32 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         BasicDBObject whereQuery = new BasicDBObject();
         whereQuery.put("_id", Pattern.compile(".*\\Q" + lookupText + "\\E.*", Pattern.CASE_INSENSITIVE));
 
-        values = collection.distinct("_id", whereQuery, String.class).into(new ArrayList<>());
+        int maxSize = 50;
+        try {
+            String variantIdLookupMaxSize = appConfig.get("variantIdLookupMaxSize");
+            maxSize = Integer.parseInt(variantIdLookupMaxSize);
+        } catch (Exception e) {
+            LOG.debug("can't read variantIdLookupMaxSize in config, using maxSize=50");
+        }        
+
+        MongoCursor<Document> cursor = collection.aggregate(
+            Arrays.asList(
+                Aggregates.match(whereQuery),
+                Aggregates.group("$_id"),
+                Aggregates.limit(maxSize+1)
+            )
+        ).iterator(); 
         
-    	if (values.size() > 20)
-    		return Arrays.asList("Too many results (" + values.size() + ") , please refine search!");
+        try {
+            while (cursor.hasNext()) {
+                values.add((Comparable) cursor.next().get("_id"));
+            }
+        } finally {
+           cursor.close();
+        }
+        
+    	if (values.size() > maxSize)
+    		return Arrays.asList("Too many results, please refine search!");
 
         return values;
     }
