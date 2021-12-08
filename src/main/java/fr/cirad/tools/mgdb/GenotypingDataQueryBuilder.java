@@ -40,7 +40,6 @@ import org.springframework.data.mongodb.core.query.Query;
 //import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
-import com.mongodb.DBObject;
 import com.mongodb.client.MongoCollection;
 
 import fr.cirad.controller.GigwaMethods;
@@ -220,10 +219,11 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
         genotypePatternToQueryMap.put(GENOTYPE_CODE_LABEL_ATL_ONE_HETEROZYGOUS, "([0-9])([0-9])*(/(?!\\1))+([0-9])*"/*|^$"*/ + GenotypingDataQueryBuilder.AGGREGATION_QUERY_REGEX_APPLY_TO_AT_LEAST_ONE_IND_SUFFIX);
         genotypePatternToQueryMap.put(GENOTYPE_CODE_LABEL_WITHOUT_ABNORMAL_HETEROZYGOSITY, GenotypingDataQueryBuilder.AGGREGATION_QUERY_WITHOUT_ABNORMAL_HETEROZYGOSITY);
     }
-    
+
     public GenotypingDataQueryBuilder(GigwaSearchVariantsRequest gsvr, MongoCollection<Document> tempExportColl, BasicDBList variantQueryDBList, boolean fForCounting) throws Exception
     {
         this.variantQueryDBList = variantQueryDBList;
+        Helper.convertIdFiltersToRunFormat(this.variantQueryDBList);
         
         String info[] = GigwaSearchVariantsRequest.getInfoFromId(gsvr.getVariantSetId(), 2);
         String sModule = info[0];
@@ -236,11 +236,11 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
         this.variantEffects = gsvr.getVariantEffect();
 
         Query q = new Query();
-           q.addCriteria(Criteria.where("_id").is(projId));
-           q.addCriteria(Criteria.where(GenotypingProject.FIELDNAME_EFFECT_ANNOTATIONS + ".0").exists(true));
-           this.projectHasEffectAnnotations = mongoTemplate.findOne(q, GenotypingProject.class) != null;
+        q.addCriteria(Criteria.where("_id").is(projId));
+        q.addCriteria(Criteria.where(GenotypingProject.FIELDNAME_EFFECT_ANNOTATIONS + ".0").exists(true));
+        this.projectHasEffectAnnotations = mongoTemplate.findOne(q, GenotypingProject.class) != null;
 
-           this.selectedIndividuals[0] = gsvr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gsvr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet());
+        this.selectedIndividuals[0] = gsvr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gsvr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet());
         this.operator[0] = genotypePatternToQueryMap.get(gsvr.getGtPattern());
         this.mostSameRatio[0] = gsvr.getMostSameRatio();
         this.annotationFieldThresholds[0] = gsvr.getAnnotationFieldThresholds();
@@ -374,7 +374,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
 
         boolean fFilteringOnSequence = false;
         for (Object variantFilter : variantQueryDBList)
-            if (((DBObject) variantFilter).containsField(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE)) {
+            if (((BasicDBObject) variantFilter).containsKey(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE)) {
                 fFilteringOnSequence = true;
                 break;
             }
