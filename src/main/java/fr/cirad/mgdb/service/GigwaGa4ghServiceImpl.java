@@ -359,56 +359,48 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         List<String> selectedVariantTypes = gsvr.getSelectedVariantTypes().length() == 0 ? null : Arrays.asList(gsvr.getSelectedVariantTypes().split(";"));
         List<String> selectedSequences = Arrays.asList(actualSequenceSelection == null || actualSequenceSelection.length() == 0 ? new String[0] : actualSequenceSelection.split(";"));
         List<String> alleleCountList = gsvr.getAlleleCount().length() == 0 ? null : Arrays.asList(gsvr.getAlleleCount().split(";"));
-        List<String> selectedVariantIds = gsvr.getSelectedVariantIds().length() == 0 ? null : Arrays.asList(gsvr.getSelectedVariantIds().split(";"));
         
         BasicDBList variantFeatureFilterList = new BasicDBList();
-        
-        if (selectedVariantIds == null) {
 
-            /* Step to match selected variant types */
-            if (selectedVariantTypes != null && selectedVariantTypes.size() > 0) {
-                BasicDBList orList1 = new BasicDBList();
-                BasicDBObject orSelectedVariantTypesList = new BasicDBObject();
-                for (String aSelectedVariantTypes : selectedVariantTypes) {
-                    BasicDBObject orClause1 = new BasicDBObject(VariantData.FIELDNAME_TYPE, aSelectedVariantTypes);
-                    orList1.add(orClause1);
-                    orSelectedVariantTypesList.put("$or", orList1);
-                }
-                variantFeatureFilterList.add(orSelectedVariantTypesList);
+        /* Step to match selected variant types */
+        if (selectedVariantTypes != null && selectedVariantTypes.size() > 0) {
+            BasicDBList orList1 = new BasicDBList();
+            BasicDBObject orSelectedVariantTypesList = new BasicDBObject();
+            for (String aSelectedVariantTypes : selectedVariantTypes) {
+                BasicDBObject orClause1 = new BasicDBObject(VariantData.FIELDNAME_TYPE, aSelectedVariantTypes);
+                orList1.add(orClause1);
+                orSelectedVariantTypesList.put("$or", orList1);
             }
+            variantFeatureFilterList.add(orSelectedVariantTypesList);
+        }
 
-            /* Step to match selected chromosomes */
-            if (selectedSequences != null && selectedSequences.size() > 0 && selectedSequences.size() != getProjectSequences(sModule, projId).size()) {
-                variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, new BasicDBObject("$in", selectedSequences)));
-            }
+        /* Step to match selected chromosomes */
+        if (selectedSequences != null && selectedSequences.size() > 0 && selectedSequences.size() != getProjectSequences(sModule, projId).size()) {
+            variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, new BasicDBObject("$in", selectedSequences)));
+        }
 
-            /* Step to match variants that have a position included in the specified range */
-            if (gsvr.getStart() != null || gsvr.getEnd() != null) {
-                if (gsvr.getStart() != null && gsvr.getStart() != -1) {
-                    BasicDBObject firstPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$gte", gsvr.getStart()));
-                    variantFeatureFilterList.add(firstPosStart);
-                }
-                if (gsvr.getEnd() != null && gsvr.getEnd() != -1) {
-                    BasicDBObject lastPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$lte", gsvr.getEnd()));
-                    variantFeatureFilterList.add(lastPosStart);
-                }
+        /* Step to match variants that have a position included in the specified range */
+        if (gsvr.getStart() != null || gsvr.getEnd() != null) {
+            if (gsvr.getStart() != null && gsvr.getStart() != -1) {
+                BasicDBObject firstPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$gte", gsvr.getStart()));
+                variantFeatureFilterList.add(firstPosStart);
             }
+            if (gsvr.getEnd() != null && gsvr.getEnd() != -1) {
+                BasicDBObject lastPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$lte", gsvr.getEnd()));
+                variantFeatureFilterList.add(lastPosStart);
+            }
+        }
 
-            /* Step to match selected number of alleles */
-            if (alleleCountList != null) {
-                BasicDBList orList3 = new BasicDBList();
-                BasicDBObject orSelectedNumberOfAllelesList = new BasicDBObject();
-                for (String aSelectedNumberOfAlleles : alleleCountList) {
-                    int alleleNumber = Integer.parseInt(aSelectedNumberOfAlleles);
-                    orList3.add(new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELES, new BasicDBObject("$size", alleleNumber)));
-                    orSelectedNumberOfAllelesList.put("$or", orList3);
-                }
-                variantFeatureFilterList.add(orSelectedNumberOfAllelesList);
+        /* Step to match selected number of alleles */
+        if (alleleCountList != null) {
+            BasicDBList orList3 = new BasicDBList();
+            BasicDBObject orSelectedNumberOfAllelesList = new BasicDBObject();
+            for (String aSelectedNumberOfAlleles : alleleCountList) {
+                int alleleNumber = Integer.parseInt(aSelectedNumberOfAlleles);
+                orList3.add(new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELES, new BasicDBObject("$size", alleleNumber)));
+                orSelectedNumberOfAllelesList.put("$or", orList3);
             }
-        } else {
-            BasicDBObject variantIdsQuery = new BasicDBObject();
-            variantIdsQuery.put("_id", new BasicDBObject("$in", selectedVariantIds));
-            variantFeatureFilterList.add(variantIdsQuery);
+            variantFeatureFilterList.add(orSelectedNumberOfAllelesList);
         }
 
         return variantFeatureFilterList;
@@ -1328,7 +1320,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     			+ (gsvr.getEnd() == null ? "" : gsvr.getEnd()) + ":"
     			+ gsvr.getAlleleCount() + ":"
     			+ gsvr.getGeneName() + ":"
-                + gsvr.getSelectedVariantIds() + ":"
     			
     			+ gsvr.getCallSetIds() + ":"
     			+ gsvr.getAnnotationFieldThresholds() + ":"
