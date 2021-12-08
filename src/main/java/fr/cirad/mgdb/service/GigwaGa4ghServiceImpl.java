@@ -400,7 +400,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 BasicDBObject orSelectedNumberOfAllelesList = new BasicDBObject();
                 for (String aSelectedNumberOfAlleles : alleleCountList) {
                     int alleleNumber = Integer.parseInt(aSelectedNumberOfAlleles);
-                    orList3.add(new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, new BasicDBObject("$size", alleleNumber)));
+                    orList3.add(new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELES, new BasicDBObject("$size", alleleNumber)));
                     orSelectedNumberOfAllelesList.put("$or", orList3);
                 }
                 variantFeatureFilterList.add(orSelectedNumberOfAllelesList);
@@ -879,7 +879,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
                     if (partialCountArray != null)
                     	genotypingDataPipeline.add(new BasicDBObject("$limit", partialCountArray[chunkIndex]));
-                	genotypingDataPipeline.add(new BasicDBObject("$project", new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, 1).append(VariantData.FIELDNAME_REFERENCE_POSITION, 1).append(VariantData.FIELDNAME_TYPE, 1)));
+                	genotypingDataPipeline.add(new BasicDBObject("$project", new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELES, 1).append(VariantData.FIELDNAME_REFERENCE_POSITION, 1).append(VariantData.FIELDNAME_TYPE, 1)));
 
                     Thread queryThread = new Thread() {
                         @Override
@@ -1718,7 +1718,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             Document obj = cursor.next();
             // save the Id of each variant in the cursor 
             String id = (String) obj.get("_id");
-            List<String> knownAlleles = ((List<String>) obj.get(VariantData.FIELDNAME_KNOWN_ALLELE_LIST));
+            List<String> knownAlleles = ((List<String>) obj.get(VariantData.FIELDNAME_KNOWN_ALLELES));
 
             typeMap.put(id, (String) obj.get(VariantData.FIELDNAME_TYPE));
             Variant.Builder variantBuilder = Variant.newBuilder()
@@ -2835,7 +2835,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             BasicDBObject queryVarAnn = new BasicDBObject();
             BasicDBObject varAnnField = new BasicDBObject();
             queryVarAnn.put("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, variantId);
-            varAnnField.put(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, 1);
+            varAnnField.put(VariantData.FIELDNAME_KNOWN_ALLELES, 1);
             varAnnField.put(VariantData.SECTION_ADDITIONAL_INFO, 1);
             Document variantRunDataObj = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(VariantRunData.class)).find(queryVarAnn).projection(varAnnField)
                 .sort(new BasicDBObject(AbstractVariantData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME, -1))  /*FIXME: this method should be called separately for each run*/
@@ -2984,7 +2984,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 				                    	
 				                    	boolean fWorkingOnProtein = "Protein_position".equals(positionHeader);
 		
-				                    	String sRefAllele = ((List<String>) variantRunDataObj.get(VariantData.FIELDNAME_KNOWN_ALLELE_LIST)).get(0);
+				                    	String sRefAllele = ((List<String>) variantRunDataObj.get(VariantData.FIELDNAME_KNOWN_ALLELES)).get(0);
 				                    	if (!fWorkingOnProtein)
 			                    			allLocBuilder.setEnd(allLocBuilder.getStart() + sRefAllele.length() - 1);
 //				                    	else
