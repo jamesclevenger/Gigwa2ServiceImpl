@@ -1524,8 +1524,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			List<BasicDBObject> windowQuery = new ArrayList<BasicDBObject>(baseQuery);
 			windowQuery.set(0, new BasicDBObject("$match", initialMatchStage));
 			
-			try { System.out.println(new ObjectMapper().writeValueAsString(windowQuery)); }
-            catch (Exception ignored) {}
+			//try { System.out.println(new ObjectMapper().writeValueAsString(windowQuery)); }
+            //catch (Exception ignored) {}
 
             Thread t = new Thread() {
             	public void run() {
@@ -1665,33 +1665,35 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		return new TreeMap<Long, Double>(result);
     }
     
-    private final String FST_S2_DATA = "dt";
-    private final String FST_S5_SPKEYVAL = "sk";
-    private final String FST_S8_SAMPLE = "sa";
-    private final String FST_S9_GENOTYPE = "gy";
-    private final String FST_S10_VARIANTID = "vi";
-    private final String FST_S10_INDIVIDUALID = "ii";
-    private final String FST_S10_SAMPLEINDEX = "sx";
-    private final String FST_S14_POPULATIONGENOTYPES = "pg";
-    private final String FST_S15_POPULATION = "pp";
-    private final String FST_S19_GENOTYPE = "gn";
-    private final String FST_S20_HETEROZYGOTE = "ht";
-    private final String FST_S22_VARIANTID = "vi";
-    private final String FST_S22_POPULATIONID = "pp";
-    private final String FST_S22_ALLELECOUNT = "ac";
-    private final String FST_S22_HETEROZYGOTECOUNT = "hc";
+    private static final String GENOTYPE_DATA_S2_DATA = "dt";
+    private static final String GENOTYPE_DATA_S5_SPKEYVAL = "sk";
+    private static final String GENOTYPE_DATA_S8_SAMPLE = "sa";
+    private static final String GENOTYPE_DATA_S7_SAMPLEID = "si";
+    private static final String GENOTYPE_DATA_S7_GENOTYPE = "gy";
+    private static final String GENOTYPE_DATA_S10_VARIANTID = "vi";
+    private static final String GENOTYPE_DATA_S10_INDIVIDUALID = "ii";
+    private static final String GENOTYPE_DATA_S10_SAMPLEINDEX = "sx";
     
-    private final String FST_RES_SAMPLESIZE = "ss";
-    private final String FST_RES_ALLELEID = "al";
-    private final String FST_RES_ALLELEMAX = "am";
-    private final String FST_RES_ALLELEFREQUENCY = "af";
-    private final String FST_RES_HETEROZYGOTEFREQUENCY = "hf";
-    private final String FST_RES_ALLELES = "as";
-    private final String FST_RES_POPULATIONS = "ps";
+    private static final String FST_S14_POPULATIONGENOTYPES = "pg";
+    private static final String FST_S15_POPULATION = "pp";
+    private static final String FST_S19_GENOTYPE = "gn";
+    private static final String FST_S20_HETEROZYGOTE = "ht";
+    private static final String FST_S22_VARIANTID = "vi";
+    private static final String FST_S22_POPULATIONID = "pi";
+    private static final String FST_S22_ALLELECOUNT = "ac";
+    private static final String FST_S22_HETEROZYGOTECOUNT = "hc";
     
-    private List<BasicDBObject> buildFstQuery(GigwaDensityRequest gdr, boolean useTempColl) {
+    private static final String FST_RES_SAMPLESIZE = "ss";
+    private static final String FST_RES_ALLELEID = "al";
+    private static final String FST_RES_ALLELEMAX = "am";
+    private static final String FST_RES_ALLELEFREQUENCY = "af";
+    private static final String FST_RES_HETEROZYGOTEFREQUENCY = "hf";
+    private static final String FST_RES_ALLELES = "as";
+    private static final String FST_RES_POPULATIONS = "ps";
+    
+    private List<BasicDBObject> buildGenotypeDataQuery(GigwaDensityRequest gdr, boolean useTempColl, Map<String, List<GenotypingSample>> individualToSampleListMap) {
     	String info[] = GigwaSearchVariantsRequest.getInfoFromId(gdr.getVariantSetId(), 2);
-        String sModule = info[0];
+        //String sModule = info[0];
         int projId = Integer.parseInt(info[1]);
         
         //MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
@@ -1700,22 +1702,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         //boolean fIsMultiRunProject = genotypingProject.getRuns().size() > 1;
         boolean fGotMultiSampleIndividuals = false;
         
-        List<Collection<String>> selectedIndividuals = new ArrayList<Collection<String>>();
-        if (gdr.getDisplayedAdditionalGroups() == null) {
-        	selectedIndividuals.add(gdr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
-        	selectedIndividuals.add(gdr.getCallSetIds2().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds2().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
-        } else {
-        	for (Collection<String> group : gdr.getDisplayedAdditionalGroups()) {
-        		selectedIndividuals.add(group.size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : group.stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
-        	}
-        }
-        TreeMap<String, ArrayList<GenotypingSample>> individualToSampleListMap = new TreeMap<String, ArrayList<GenotypingSample>>();
-        for (Collection<String> group : selectedIndividuals) {
-        	individualToSampleListMap.putAll(MgdbDao.getSamplesByIndividualForProject(sModule, projId, group));
-        }
         
-        
-        for (ArrayList<GenotypingSample> samplesForAGivenIndividual : individualToSampleListMap.values()) {
+        for (List<GenotypingSample> samplesForAGivenIndividual : individualToSampleListMap.values()) {
             if (samplesForAGivenIndividual.size() > 1) {
                 fGotMultiSampleIndividuals = true;
                 break;
@@ -1733,14 +1721,14 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	    	lookup.put("from", "variantRunData");
 	    	lookup.put("localField", "_id");
 	    	lookup.put("foreignField", "_id.vi");
-	    	lookup.put("as", FST_S2_DATA);
+	    	lookup.put("as", GENOTYPE_DATA_S2_DATA);
 	    	pipeline.add(new BasicDBObject("$lookup", lookup));
 	    	
 	    	// Stage 3 : Unwind data
-	    	pipeline.add(new BasicDBObject("$unwind", "$" + FST_S2_DATA));
+	    	pipeline.add(new BasicDBObject("$unwind", "$" + GENOTYPE_DATA_S2_DATA));
 	    	
 	    	// Stage 4 : Keep only the right project
-	    	pipeline.add(new BasicDBObject("$match", new BasicDBObject(FST_S2_DATA + "._id.pi", projId)));
+	    	pipeline.add(new BasicDBObject("$match", new BasicDBObject(GENOTYPE_DATA_S2_DATA + "._id.pi", projId)));
     	} else {
     		// Stage 4 : Keep only the right project
     		pipeline.add(new BasicDBObject("$match", new BasicDBObject("_id.pi", projId)));
@@ -1749,43 +1737,43 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	if (fGotMultiSampleIndividuals) {
     		if (useTempColl) {
 	    		// Stage 5 : Convert samples to an array
-	    		pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(FST_S5_SPKEYVAL, new BasicDBObject("$objectToArray", "$" + FST_S2_DATA + "." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES))));
+	    		pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(GENOTYPE_DATA_S5_SPKEYVAL, new BasicDBObject("$objectToArray", "$" + GENOTYPE_DATA_S2_DATA + "." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES))));
     		} else {
     			// Stage 5 : Convert samples to an array
-	    		pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(FST_S5_SPKEYVAL, new BasicDBObject("$objectToArray", "$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES))));	
+	    		pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(GENOTYPE_DATA_S5_SPKEYVAL, new BasicDBObject("$objectToArray", "$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES))));	
     		}
 	    		
     		// Stage 6 : Unwind samples
-    		pipeline.add(new BasicDBObject("$unwind", "$" + FST_S5_SPKEYVAL));
+    		pipeline.add(new BasicDBObject("$unwind", "$" + GENOTYPE_DATA_S5_SPKEYVAL));
     		
     		// Stage 7 : Convert key and value
     		BasicDBObject spkeyval = new BasicDBObject();
-    		spkeyval.put("sampleid", new BasicDBObject("$toInt", "$" + FST_S5_SPKEYVAL + ".k"));
-    		spkeyval.put("genotype", "$" + FST_S5_SPKEYVAL + ".v.gt");
+    		spkeyval.put(GENOTYPE_DATA_S7_SAMPLEID, new BasicDBObject("$toInt", "$" + GENOTYPE_DATA_S5_SPKEYVAL + ".k"));
+    		spkeyval.put(GENOTYPE_DATA_S7_GENOTYPE, "$" + GENOTYPE_DATA_S5_SPKEYVAL + ".v.gt");
     		pipeline.add(new BasicDBObject("$project", spkeyval));
     		
     		// Stage 8 : Lookup samples
     		BasicDBObject sampleLookup = new BasicDBObject();
     		sampleLookup.put("from", "samples");
-    		sampleLookup.put("localField", "sampleid");
+    		sampleLookup.put("localField", GENOTYPE_DATA_S7_SAMPLEID);
     		sampleLookup.put("foreignField", "_id");
-    		sampleLookup.put("as", FST_S8_SAMPLE);
+    		sampleLookup.put("as", GENOTYPE_DATA_S8_SAMPLE);
     		pipeline.add(new BasicDBObject("$lookup", sampleLookup));
     		
     		// Stage 9 : Get first sample (shouldn't get more than one anyway)
     		BasicDBObject firstSample = new BasicDBObject();
-    		firstSample.put(FST_S9_GENOTYPE, 1);
-    		firstSample.put(FST_S8_SAMPLE, new BasicDBObject("$arrayElemAt", Arrays.asList("$" + FST_S8_SAMPLE, 0)));
+    		firstSample.put(GENOTYPE_DATA_S7_GENOTYPE, 1);
+    		firstSample.put(GENOTYPE_DATA_S8_SAMPLE, new BasicDBObject("$arrayElemAt", Arrays.asList("$" + GENOTYPE_DATA_S8_SAMPLE, 0)));
     		pipeline.add(new BasicDBObject("$project", firstSample));
     		
     		// Stage 10 : Regroup individual runs
     		BasicDBObject individualGroup = new BasicDBObject();
     		BasicDBObject individualGroupId = new BasicDBObject();
-    		individualGroupId.put(FST_S10_VARIANTID, "$_id");
-    		individualGroupId.put(FST_S10_INDIVIDUALID, "$" + FST_S8_SAMPLE + "." + GenotypingSample.FIELDNAME_INDIVIDUAL);
+    		individualGroupId.put(GENOTYPE_DATA_S10_VARIANTID, "$_id");
+    		individualGroupId.put(GENOTYPE_DATA_S10_INDIVIDUALID, "$" + GENOTYPE_DATA_S8_SAMPLE + "." + GenotypingSample.FIELDNAME_INDIVIDUAL);
     		individualGroup.put("_id", individualGroupId);
-    		individualGroup.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$addToSet", "$" + FST_S9_GENOTYPE));
-    		individualGroup.put(FST_S10_SAMPLEINDEX, new BasicDBObject("$min", "$" + FST_S8_SAMPLE + "._id"));
+    		individualGroup.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$addToSet", "$" + GENOTYPE_DATA_S7_GENOTYPE));
+    		individualGroup.put(GENOTYPE_DATA_S10_SAMPLEINDEX, new BasicDBObject("$min", "$" + GENOTYPE_DATA_S8_SAMPLE + "._id"));
     		pipeline.add(new BasicDBObject("$group", individualGroup));
     		
     		// Stage 11 : Weed out incoherent genotypes
@@ -1793,9 +1781,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     		
     		// Stage 12 : Group back by variant
     		BasicDBObject variantGroup = new BasicDBObject();
-    		variantGroup.put("_id", "$_id." + FST_S10_VARIANTID);
+    		variantGroup.put("_id", "$_id." + GENOTYPE_DATA_S10_VARIANTID);
     		BasicDBObject spObject = new BasicDBObject();
-    		spObject.put("k", new BasicDBObject("$toString", "$" + FST_S10_SAMPLEINDEX));
+    		spObject.put("k", new BasicDBObject("$toString", "$" + GENOTYPE_DATA_S10_SAMPLEINDEX));
     		spObject.put("v", new BasicDBObject(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$arrayElemAt", Arrays.asList("$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES, 0))));
     		variantGroup.put("sp", new BasicDBObject("$push", spObject));
     		pipeline.add(new BasicDBObject("$group", variantGroup));
@@ -1807,7 +1795,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		    	// Stage 5 : Group runs
 		    	BasicDBObject groupRuns = new BasicDBObject();
 		    	groupRuns.put("_id", "$_id");
-		    	groupRuns.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$first", "$" + FST_S2_DATA + "." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES));
+		    	groupRuns.put(VariantRunData.FIELDNAME_SAMPLEGENOTYPES, new BasicDBObject("$first", "$" + GENOTYPE_DATA_S2_DATA + "." + VariantRunData.FIELDNAME_SAMPLEGENOTYPES));
 		    	pipeline.add(new BasicDBObject("$group", groupRuns));
     		} else {
     			// Stage 5 : Group runs
@@ -1817,6 +1805,30 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		    	pipeline.add(new BasicDBObject("$group", groupRuns));
     		}
     	}
+    	
+    	return pipeline;
+    }
+    
+    private List<BasicDBObject> buildFstQuery(GigwaDensityRequest gdr, boolean useTempColl) {
+    	String info[] = GigwaSearchVariantsRequest.getInfoFromId(gdr.getVariantSetId(), 2);
+        String sModule = info[0];
+        int projId = Integer.parseInt(info[1]);
+    	
+    	List<Collection<String>> selectedIndividuals = new ArrayList<Collection<String>>();
+        if (gdr.getDisplayedAdditionalGroups() == null) {
+        	selectedIndividuals.add(gdr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
+        	selectedIndividuals.add(gdr.getCallSetIds2().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds2().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
+        } else {
+        	for (Collection<String> group : gdr.getDisplayedAdditionalGroups()) {
+        		selectedIndividuals.add(group.size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : group.stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
+        	}
+        }
+        TreeMap<String, List<GenotypingSample>> individualToSampleListMap = new TreeMap<String, List<GenotypingSample>>();
+        for (Collection<String> group : selectedIndividuals) {
+        	individualToSampleListMap.putAll(MgdbDao.getSamplesByIndividualForProject(sModule, projId, group));
+        }
+    	
+    	List<BasicDBObject> pipeline = buildGenotypeDataQuery(gdr, useTempColl, individualToSampleListMap);
     	
     	// Stage 14 : Get populations genotypes    	
     	BasicDBList populationGenotypes = new BasicDBList();
@@ -1911,7 +1923,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	return pipeline;
     }
     
-    private BasicDBList getFullPathToGenotypes(String sModule, int projId, Collection<String> selectedIndividuals, TreeMap<String, ArrayList<GenotypingSample>> individualToSampleListMap){
+    private BasicDBList getFullPathToGenotypes(String sModule, int projId, Collection<String> selectedIndividuals, Map<String, List<GenotypingSample>> individualToSampleListMap){
     	BasicDBList result = new BasicDBList();
     	Iterator<String> indIt = selectedIndividuals.iterator();
         while (indIt.hasNext()) {
