@@ -109,7 +109,8 @@ public class AutoUnzipFilter implements javax.servlet.Filter {
 	    		}
 	            ze = zis.getNextEntry();
 	     	}
-	    	throw new IOException("No file found with extension '" + extension + "' in " + f.getName());
+	    	((HttpServletResponse) response).setStatus(HttpServletResponse.SC_NOT_FOUND);
+	    	LOG.error("No file found with extension '" + extension + "' in " + f.getName());
 		}
 		finally
 		{

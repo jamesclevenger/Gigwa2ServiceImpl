@@ -55,8 +55,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import java.util.stream.DoubleStream;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -66,6 +66,7 @@ import org.apache.avro.AvroRemoteException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.ArrayUtils;
 import org.apache.log4j.Logger;
 import org.bson.Document;
 import org.ga4gh.methods.GAException;
@@ -111,6 +112,7 @@ import com.mongodb.MongoCommandException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
+import com.mongodb.client.model.Aggregates;
 
 import fr.cirad.controller.GigwaMethods;
 import fr.cirad.mgdb.exporting.IExportHandler;
@@ -153,6 +155,7 @@ import htsjdk.variant.vcf.VCFFormatHeaderLine;
 import htsjdk.variant.vcf.VCFHeaderLine;
 import htsjdk.variant.vcf.VCFInfoHeaderLine;
 import htsjdk.variant.vcf.VCFSimpleHeaderLine;
+import java.util.regex.Pattern;
 
 /**
  *
@@ -248,8 +251,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
     @Override
     public List<String> listVariantTypesSorted(String sModule, int projId) {
-        List<String> variantTypesArray = new ArrayList(getProjectVariantTypes(sModule, projId));
-        Collections.sort(variantTypesArray, new AlphaNumericComparator());
+        List<String> variantTypesArray = new ArrayList<>(getProjectVariantTypes(sModule, projId));
+        Collections.sort(variantTypesArray, new AlphaNumericComparator<String>());
         return variantTypesArray;
     }
 
@@ -346,7 +349,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public ArrayList<Object> buildVariantDataQuery(GigwaSearchVariantsRequest gsvr, List<String> externallySelectedSeqs) {
+    public BasicDBList buildVariantDataQuery(GigwaSearchVariantsRequest gsvr, List<String> externallySelectedSeqs) {
         String info[] = GigwaSearchVariantsRequest.getInfoFromId(gsvr.getVariantSetId(), 2);
         String sModule = info[0];
         int projId = Integer.parseInt(info[1]);
@@ -367,7 +370,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             BasicDBList orList1 = new BasicDBList();
             BasicDBObject orSelectedVariantTypesList = new BasicDBObject();
             for (String aSelectedVariantTypes : selectedVariantTypes) {
-            	BasicDBObject orClause1 = new BasicDBObject(VariantData.FIELDNAME_TYPE, aSelectedVariantTypes);
+                BasicDBObject orClause1 = new BasicDBObject(VariantData.FIELDNAME_TYPE, aSelectedVariantTypes);
                 orList1.add(orClause1);
                 orSelectedVariantTypesList.put("$or", orList1);
             }
@@ -382,11 +385,11 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         /* Step to match variants that have a position included in the specified range */
         if (gsvr.getStart() != null || gsvr.getEnd() != null) {
             if (gsvr.getStart() != null && gsvr.getStart() != -1) {
-            	BasicDBObject firstPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$gte", gsvr.getStart()));
+                BasicDBObject firstPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$gte", gsvr.getStart()));
                 variantFeatureFilterList.add(firstPosStart);
             }
             if (gsvr.getEnd() != null && gsvr.getEnd() != -1) {
-            	BasicDBObject lastPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$lte", gsvr.getEnd()));
+                BasicDBObject lastPosStart = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$lte", gsvr.getEnd()));
                 variantFeatureFilterList.add(lastPosStart);
             }
         }
@@ -397,7 +400,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             BasicDBObject orSelectedNumberOfAllelesList = new BasicDBObject();
             for (String aSelectedNumberOfAlleles : alleleCountList) {
                 int alleleNumber = Integer.parseInt(aSelectedNumberOfAlleles);
-                orList3.add(new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, new BasicDBObject("$size", alleleNumber)));
+                orList3.add(new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELES, new BasicDBObject("$size", alleleNumber)));
                 orSelectedNumberOfAllelesList.put("$or", orList3);
             }
             variantFeatureFilterList.add(orSelectedNumberOfAllelesList);
@@ -817,7 +820,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     List<DBObject> toAdd = new ArrayList<>(), toRemove = new ArrayList<>();
                     for (Object filter : initialMatchForVariantColl)
                     {
-                        Object variantIdFilter = ((BasicDBObject) filter).get("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID);
+                        Object variantIdFilter = ((DBObject) filter).get("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID);
                         if (variantIdFilter != null)
                         {
                             toAdd.add(new BasicDBObject("_id", variantIdFilter));
@@ -871,7 +874,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
                     if (partialCountArray != null)
                     	genotypingDataPipeline.add(new BasicDBObject("$limit", partialCountArray[chunkIndex]));
-                	genotypingDataPipeline.add(new BasicDBObject("$project", new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, 1).append(VariantData.FIELDNAME_REFERENCE_POSITION, 1).append(VariantData.FIELDNAME_TYPE, 1)));
+                	genotypingDataPipeline.add(new BasicDBObject("$project", new BasicDBObject(VariantData.FIELDNAME_KNOWN_ALLELES, 1).append(VariantData.FIELDNAME_REFERENCE_POSITION, 1).append(VariantData.FIELDNAME_TYPE, 1)));
 
                     Thread queryThread = new Thread() {
                         @Override
@@ -2175,7 +2178,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             Document obj = cursor.next();
             // save the Id of each variant in the cursor 
             String id = (String) obj.get("_id");
-            List<String> knownAlleles = ((List<String>) obj.get(VariantData.FIELDNAME_KNOWN_ALLELE_LIST));
+            List<String> knownAlleles = ((List<String>) obj.get(VariantData.FIELDNAME_KNOWN_ALLELES));
 
             typeMap.put(id, (String) obj.get(VariantData.FIELDNAME_TYPE));
             Variant.Builder variantBuilder = Variant.newBuilder()
@@ -3102,6 +3105,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     {
                         Document sortObj = new Document(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1);
                         sortObj.put(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
+                        sortObj.put("_id",1);
                         iterable.sort(sortObj);
                     }
                     iterable.collation(IExportHandler.collationObj);
@@ -3291,7 +3295,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             BasicDBObject queryVarAnn = new BasicDBObject();
             BasicDBObject varAnnField = new BasicDBObject();
             queryVarAnn.put("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, variantId);
-            varAnnField.put(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, 1);
+            varAnnField.put(VariantData.FIELDNAME_KNOWN_ALLELES, 1);
             varAnnField.put(VariantData.SECTION_ADDITIONAL_INFO, 1);
             Document variantRunDataObj = MongoTemplateManager.get(module).getCollection(MongoTemplateManager.getMongoCollectionName(VariantRunData.class)).find(queryVarAnn).projection(varAnnField)
                 .sort(new BasicDBObject(AbstractVariantData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME, -1))  /*FIXME: this method should be called separately for each run*/
@@ -3440,7 +3444,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 				                    	
 				                    	boolean fWorkingOnProtein = "Protein_position".equals(positionHeader);
 		
-				                    	String sRefAllele = ((List<String>) variantRunDataObj.get(VariantData.FIELDNAME_KNOWN_ALLELE_LIST)).get(0);
+				                    	String sRefAllele = ((List<String>) variantRunDataObj.get(VariantData.FIELDNAME_KNOWN_ALLELES)).get(0);
 				                    	if (!fWorkingOnProtein)
 			                    			allLocBuilder.setEnd(allLocBuilder.getStart() + sRefAllele.length() - 1);
 //				                    	else
@@ -3588,17 +3592,11 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     public TreeMap<String, HashMap<String, String>> getExportFormats() {
         TreeMap<String, HashMap<String, String>> exportFormats = new TreeMap<>();
         try {
-            for (IExportHandler exportHandler : AbstractIndividualOrientedExportHandler.getIndividualOrientedExportHandlers().values()) {
+            for (IExportHandler exportHandler : Stream.of(AbstractIndividualOrientedExportHandler.getIndividualOrientedExportHandlers().values(), AbstractMarkerOrientedExportHandler.getMarkerOrientedExportHandlers().values()).flatMap(Collection::stream).collect(Collectors.toList())) {
                 HashMap<String, String> info = new HashMap<>();
                 info.put("desc", exportHandler.getExportFormatDescription());
-                info.put("dataFileExtentions", StringUtils.join(exportHandler.getExportDataFileExtensions(), ";"));
-                info.put("supportedVariantTypes", StringUtils.join(exportHandler.getSupportedVariantTypes(), ";"));
-                exportFormats.put(exportHandler.getExportFormatName(), info);
-            }
-            for (IExportHandler exportHandler : AbstractMarkerOrientedExportHandler.getMarkerOrientedExportHandlers().values()) {
-                HashMap<String, String> info = new HashMap<>();
-                info.put("desc", exportHandler.getExportFormatDescription());
-                info.put("dataFileExtentions", StringUtils.join(exportHandler.getExportDataFileExtensions(), ";"));
+                info.put("supportedPloidyLevels", StringUtils.join(ArrayUtils.toObject(exportHandler.getSupportedPloidyLevels()), ";"));
+                info.put("dataFileExtensions", StringUtils.join(exportHandler.getExportDataFileExtensions(), ";"));
                 info.put("supportedVariantTypes", StringUtils.join(exportHandler.getSupportedVariantTypes(), ";"));
                 exportFormats.put(exportHandler.getExportFormatName(), info);
             }
@@ -3607,4 +3605,47 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         }
         return exportFormats;
     }
+    
+    public List<Comparable> searchVariantsLookup(String module, int projectId, String lookupText) throws AvroRemoteException {        
+
+        MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
+
+        List<Comparable> values = new ArrayList<>();
+
+        MongoCollection<Document> collection = mongoTemplate.getCollection(MongoTemplateManager.getMongoCollectionName(VariantData.class));
+                
+        BasicDBObject whereQuery = new BasicDBObject();
+        whereQuery.put("_id", Pattern.compile(".*\\Q" + lookupText + "\\E.*", Pattern.CASE_INSENSITIVE));
+
+        int maxSize = 50;
+        try {
+            String variantIdLookupMaxSize = appConfig.get("variantIdLookupMaxSize");
+            maxSize = Integer.parseInt(variantIdLookupMaxSize);
+        } catch (Exception e) {
+            LOG.debug("can't read variantIdLookupMaxSize in config, using maxSize=50");
+        }        
+
+        MongoCursor<Document> cursor = collection.aggregate(
+            Arrays.asList(
+                Aggregates.match(whereQuery),
+                Aggregates.group("$_id"),
+                Aggregates.limit(maxSize+1)
+            )
+        ).iterator(); 
+        
+        try {
+            while (cursor.hasNext()) {
+                values.add((Comparable) cursor.next().get("_id"));
+            }
+        } finally {
+           cursor.close();
+        }
+        
+    	if (values.size() > maxSize)
+    		return Arrays.asList("Too many results, please refine search!");
+
+        return values;
+    }
+
+
 }
