@@ -1728,11 +1728,10 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 				intervalStart = ((Long)chunkId).longValue();
 
 			if (intervalStart >= 0) {
-				long pointX = intervalStart + (intervalSize + 2);
 				double value = chunk.getDouble(TJD_RES_TAJIMAD);
 				double sites = (double)chunk.getInteger(TJD_RES_SEGREGATINGSITES);
-				segregatingSites.put(pointX, sites);
-				tajimaD.put(pointX, value);
+				segregatingSites.put(intervalStart, sites);
+				tajimaD.put(intervalStart, value);
 			}
 		}
 
@@ -2012,13 +2011,14 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
     
     private static final String TJD_S14_GENOTYPES = "gl";
-    private static final String TJD_S17_GENOTYPE = "gt";
-    private static final String TJD_S19_VARIANTID = "vi";
-    private static final String TJD_S19_ALLELEID = "ai";
-    private static final String TJD_S19_ALLELECOUNT = "ac";
-    private static final String TJD_S20_NUMALLELES = "na";
-    private static final String TJD_S22_ALLELEFREQUENCY = "k";
-    private static final String TJD_S23_FREQUENCYSUM = "kc";
+    private static final String TJD_S15_SAMPLESIZE = "sz";
+    private static final String TJD_S18_GENOTYPE = "gt";
+    private static final String TJD_S20_VARIANTID = "vi";
+    private static final String TJD_S20_ALLELEID = "ai";
+    private static final String TJD_S20_ALLELECOUNT = "ac";
+    private static final String TJD_S21_NUMALLELES = "na";
+    private static final String TJD_S23_ALLELEFREQUENCY = "k";
+    private static final String TJD_S24_FREQUENCYSUM = "kc";
     
     private static final String TJD_RES_SEGREGATINGSITES = "sg";
     private static final String TJD_RES_TAJIMAD = "tjd";
@@ -2030,12 +2030,13 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	
     	List<String> selectedIndividuals = new ArrayList<String>();
         selectedIndividuals.addAll(gdr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
-        selectedIndividuals.addAll(gdr.getCallSetIds2().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds2().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
+        if (gdr.getCallSetIds2().size() > 0)
+        	selectedIndividuals.addAll(gdr.getCallSetIds2().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
         
         TreeMap<String, List<GenotypingSample>> individualToSampleListMap = new TreeMap<String, List<GenotypingSample>>();
         individualToSampleListMap.putAll(MgdbDao.getSamplesByIndividualForProject(sModule, projId, selectedIndividuals));
         
-        int sampleSize = selectedIndividuals.size();
+        final int sampleSize = 2*selectedIndividuals.size();
         int intervalSize = Math.max(1, (int) ((gdr.getDisplayedRangeMax() - gdr.getDisplayedRangeMin()) / gdr.getDisplayedRangeIntervalCount()));
         List<Long> intervalBoundaries = new ArrayList<Long>();
         for (int i = 0; i < gdr.getDisplayedRangeIntervalCount(); i++) {
@@ -2049,12 +2050,17 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         	a2 += 1.0 / (i*i);
         }
         
-        double b1 = (sampleSize + 1) / (3*(sampleSize - 1));
-        double b2 = 2*(sampleSize*sampleSize + sampleSize + 3) / (9*sampleSize*(sampleSize - 1));
+        double b1 = (double)(sampleSize + 1) / (double)(3*(sampleSize - 1));
+        double b2 = 2.0*(sampleSize*sampleSize + sampleSize + 3) / (9.0*sampleSize*(sampleSize - 1));
         double c1 = b1 - 1/a1;
-        double c2 = b2 - (sampleSize + 2)/(a1*sampleSize) + a2/(a1*a1);
+        double c2 = b2 - (double)(sampleSize + 2)/(a1*sampleSize) + a2/(a1*a1);
         double e1 = c1 / a1;
         double e2 = c2 / (a1*a1 + a2);
+        
+        System.out.println("a1 = " + a1 + ", a2 = " + a2);
+        System.out.println("b1 = " + b1 + ", b2 = " + b2);
+        System.out.println("c1 = " + c1 + ", c2 = " + c2);
+        System.out.println("e1 = " + e1 + ", e2 = " + e2);
         
     	List<BasicDBObject> pipeline = buildGenotypeDataQuery(gdr, useTempColl, individualToSampleListMap, true);
     	
@@ -2065,59 +2071,70 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	genotypeProjection.put(TJD_S14_GENOTYPES, genotypePaths);
     	pipeline.add(new BasicDBObject("$project", genotypeProjection));
     	
-    	// Stage 15 : Exclude variants with missing data
-    	BasicDBObject matchFullData = new BasicDBObject("$allElementsTrue", Arrays.asList("$" + TJD_S14_GENOTYPES));
-    	pipeline.add(new BasicDBObject("$match", new BasicDBObject("$expr", matchFullData)));
+    	// Stage 15 : Count non-null genotypes
+    	BasicDBObject sampleSizeMapping = new BasicDBObject();
+    	sampleSizeMapping.put("input", "$" + TJD_S14_GENOTYPES);
+    	sampleSizeMapping.put("in", new BasicDBObject("$cmp", Arrays.asList("$$this", null)));
+    	BasicDBObject addSampleSize = new BasicDBObject("$sum", new BasicDBObject("$map", sampleSizeMapping));
+    	pipeline.add(new BasicDBObject("$addFields", new BasicDBObject(TJD_S15_SAMPLESIZE, addSampleSize)));
     	
     	// Stage 16 : Unwind individuals
     	pipeline.add(new BasicDBObject("$unwind", "$" + TJD_S14_GENOTYPES));
     	
-    	// Stage 17 : Split the genotype string
+    	// Stage 17 : Eliminate missing genotypes
+    	BasicDBObject matchMissing = new BasicDBObject(TJD_S14_GENOTYPES, new BasicDBObject("$ne", null));
+    	pipeline.add(new BasicDBObject("$match", matchMissing));
+    	
+    	// Stage 18 : Split the genotype string
     	BasicDBObject splitMapping = new BasicDBObject();
     	splitMapping.put("input", new BasicDBObject("$split", Arrays.asList("$" + TJD_S14_GENOTYPES, "/")));
     	splitMapping.put("in", new BasicDBObject("$toInt", "$$this"));
     	BasicDBObject splitProjection = new BasicDBObject();
     	splitProjection.put(VariantData.FIELDNAME_REFERENCE_POSITION, 1);
-    	splitProjection.put(TJD_S17_GENOTYPE, new BasicDBObject("$map", splitMapping));
+    	splitProjection.put(TJD_S18_GENOTYPE, new BasicDBObject("$map", splitMapping));
+    	splitProjection.put(TJD_S15_SAMPLESIZE, 1);
     	pipeline.add(new BasicDBObject("$project", splitProjection));
     	
-    	// Stage 18 : Unwind alleles
-    	pipeline.add(new BasicDBObject("$unwind", "$" + TJD_S17_GENOTYPE));
+    	// Stage 19 : Unwind alleles
+    	pipeline.add(new BasicDBObject("$unwind", "$" + TJD_S18_GENOTYPE));
     	
-    	// Stage 19 : Count the alleles
+    	// Stage 20 : Count the alleles
     	BasicDBObject alleleGroupId = new BasicDBObject();
-    	alleleGroupId.put(TJD_S19_VARIANTID, "$_id");
-    	alleleGroupId.put(TJD_S19_ALLELEID, "$" + TJD_S17_GENOTYPE);
+    	alleleGroupId.put(TJD_S20_VARIANTID, "$_id");
+    	alleleGroupId.put(TJD_S20_ALLELEID, "$" + TJD_S18_GENOTYPE);
     	BasicDBObject alleleGroup = new BasicDBObject();
     	alleleGroup.put("_id", alleleGroupId);
     	alleleGroup.put(VariantData.FIELDNAME_REFERENCE_POSITION, new BasicDBObject("$first", "$" + VariantData.FIELDNAME_REFERENCE_POSITION));
-    	alleleGroup.put(TJD_S19_ALLELECOUNT, new BasicDBObject("$sum", 1));
+    	alleleGroup.put(TJD_S20_ALLELECOUNT, new BasicDBObject("$sum", 1));
+    	alleleGroup.put(TJD_S15_SAMPLESIZE, new BasicDBObject("$first", "$" + TJD_S15_SAMPLESIZE));
     	pipeline.add(new BasicDBObject("$group", alleleGroup));
     	
-    	// Stage 20 : Group by variant, keeping only one of the two alleles
+    	// Stage 21 : Group by variant, keeping only one of the two alleles
     	BasicDBObject variantGroup = new BasicDBObject();
-    	variantGroup.put("_id", "$_id." + TJD_S19_VARIANTID);
-    	variantGroup.put(TJD_S19_ALLELECOUNT, new BasicDBObject("$first", "$" + TJD_S19_ALLELECOUNT));
-    	variantGroup.put(TJD_S20_NUMALLELES, new BasicDBObject("$sum", 1));
+    	variantGroup.put("_id", "$_id." + TJD_S20_VARIANTID);
+    	variantGroup.put(TJD_S20_ALLELECOUNT, new BasicDBObject("$first", "$" + TJD_S20_ALLELECOUNT));
+    	variantGroup.put(TJD_S21_NUMALLELES, new BasicDBObject("$sum", 1));
+    	variantGroup.put(TJD_S15_SAMPLESIZE, new BasicDBObject("$first", "$" + TJD_S15_SAMPLESIZE));
     	variantGroup.put(VariantData.FIELDNAME_REFERENCE_POSITION, new BasicDBObject("$first", "$" + VariantData.FIELDNAME_REFERENCE_POSITION));
     	pipeline.add(new BasicDBObject("$group", variantGroup));
     	
-    	// Stage 21 : Keep only biallelic variants
-    	pipeline.add(new BasicDBObject("$match", new BasicDBObject(TJD_S20_NUMALLELES, 2)));
+    	// Stage 22 : Keep only biallelic variants
+    	pipeline.add(new BasicDBObject("$match", new BasicDBObject(TJD_S21_NUMALLELES, 2)));
     	
-    	// Stage 22 : Compute the average pairwise polymorphism for one variant
+    	// Stage 23 : Compute the average pairwise polymorphism for one variant
     	BasicDBObject alleleFrequency = new BasicDBObject();
     	alleleFrequency.put("vars", new BasicDBObject("freq",
-    			new BasicDBObject("$divide", Arrays.asList("$" + TJD_S19_ALLELECOUNT, sampleSize))));
+    			new BasicDBObject("$divide", Arrays.asList("$" + TJD_S20_ALLELECOUNT, 
+    				new BasicDBObject("$multiply", Arrays.asList("$" + TJD_S15_SAMPLESIZE, 2))))));
     	alleleFrequency.put("in", new BasicDBObject("$multiply", Arrays.asList("$$freq", new BasicDBObject("$subtract", Arrays.asList(1, "$$freq")))));  // p(1-p)
     	BasicDBObject frequencyProjection = new BasicDBObject();
     	frequencyProjection.put(VariantData.FIELDNAME_REFERENCE_POSITION, 1);
-    	frequencyProjection.put(TJD_S22_ALLELEFREQUENCY, new BasicDBObject("$let", alleleFrequency));
+    	frequencyProjection.put(TJD_S23_ALLELEFREQUENCY, new BasicDBObject("$let", alleleFrequency));
     	pipeline.add(new BasicDBObject("$project", frequencyProjection));
     	
-    	// Stage 23 : Group by graph interval
+    	// Stage 24 : Group by graph interval
     	BasicDBObject bucketOutput = new BasicDBObject();
-    	bucketOutput.put(TJD_S23_FREQUENCYSUM, new BasicDBObject("$sum", "$" + TJD_S22_ALLELEFREQUENCY));
+    	bucketOutput.put(TJD_S24_FREQUENCYSUM, new BasicDBObject("$sum", "$" + TJD_S23_ALLELEFREQUENCY));
     	bucketOutput.put(TJD_RES_SEGREGATINGSITES, new BasicDBObject("$sum", 1));
     	BasicDBObject bucketGroup = new BasicDBObject();
     	bucketGroup.put("groupBy", "$" + VariantData.FIELDNAME_REFERENCE_POSITION + ".ss");
@@ -2126,19 +2143,22 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	bucketGroup.put("output", bucketOutput);
     	pipeline.add(new BasicDBObject("$bucket", bucketGroup));
     	
-    	// Stage 24 : Compute the Tajima's D value
+    	// Stage 25 : Compute the Tajima's D value
     	BasicDBObject finalProject = new BasicDBObject();
     	finalProject.put(TJD_RES_SEGREGATINGSITES, 1);
     	finalProject.put(TJD_RES_TAJIMAD, new BasicDBObject("$divide", Arrays.asList(
     		new BasicDBObject("$subtract", Arrays.asList(
-    			"$" + TJD_S23_FREQUENCYSUM,
+    			new BasicDBObject("$divide", Arrays.asList(
+    				new BasicDBObject("$multiply", Arrays.asList("$" + TJD_S24_FREQUENCYSUM, 2*sampleSize)),
+    				sampleSize - 1
+    			)),
     			new BasicDBObject("$divide", Arrays.asList("$" + TJD_RES_SEGREGATINGSITES, a1))
     		)),
     		new BasicDBObject("$sqrt", new BasicDBObject("$abs", new BasicDBObject("$add", Arrays.asList(
     			new BasicDBObject("$multiply", Arrays.asList(e1, "$" + TJD_RES_SEGREGATINGSITES)),
     			new BasicDBObject("$multiply", Arrays.asList(
     				new BasicDBObject("$multiply", Arrays.asList(e2, "$" + TJD_RES_SEGREGATINGSITES)),
-    				"$" + TJD_RES_SEGREGATINGSITES
+    				new BasicDBObject("$subtract", Arrays.asList("$" + TJD_RES_SEGREGATINGSITES, 1))
     			))
     		))))
     	)));
