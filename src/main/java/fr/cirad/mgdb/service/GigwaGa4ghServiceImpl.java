@@ -1711,8 +1711,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			initialMatchStage.put("$expr", new BasicDBObject("$and", variantQueryDBList));
 		pipeline.set(0, new BasicDBObject("$match", initialMatchStage));
 		
-		try { System.out.println(new ObjectMapper().writeValueAsString(pipeline)); }
-        catch (Exception ignored) {}
+		//try { System.out.println(new ObjectMapper().writeValueAsString(pipeline)); }
+        //catch (Exception ignored) {}
 		
 		final int intervalSize = Math.max(1, (int) ((gdr.getDisplayedRangeMax() - gdr.getDisplayedRangeMin()) / gdr.getDisplayedRangeIntervalCount()));
 		Iterator<Document> it = mongoTemplate.getCollection(usedVarCollName).aggregate(pipeline).allowDiskUse(isAggregationAllowedToUseDisk()).iterator();
@@ -2042,7 +2042,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         for (int i = 0; i < gdr.getDisplayedRangeIntervalCount(); i++) {
 			intervalBoundaries.add(gdr.getDisplayedRangeMin() + (i*intervalSize));
 		}
-        intervalBoundaries.add(gdr.getDisplayedRangeMax());
+        intervalBoundaries.add(gdr.getDisplayedRangeMax() + 1);
         
         double a1 = 0, a2 = 0;
         for (int i = 1; i < sampleSize; i++) {
@@ -2056,11 +2056,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         double c2 = b2 - (double)(sampleSize + 2)/(a1*sampleSize) + a2/(a1*a1);
         double e1 = c1 / a1;
         double e2 = c2 / (a1*a1 + a2);
-        
-        System.out.println("a1 = " + a1 + ", a2 = " + a2);
-        System.out.println("b1 = " + b1 + ", b2 = " + b2);
-        System.out.println("c1 = " + c1 + ", c2 = " + c2);
-        System.out.println("e1 = " + e1 + ", e2 = " + e2);
         
     	List<BasicDBObject> pipeline = buildGenotypeDataQuery(gdr, useTempColl, individualToSampleListMap, true);
     	
