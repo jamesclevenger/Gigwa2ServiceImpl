@@ -1532,7 +1532,9 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		ProgressIndicator.registerProgressIndicator(progress);
 
 		final MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
-        final BasicDBList variantQueryDBList = (BasicDBList) buildVariantDataQuery(gvfpr, getSequenceIDsBeingFilteredOn(gvfpr.getRequest().getSession(), sModule)).iterator().next();
+        Collection<BasicDBList> variantQueryDBListColl = buildVariantDataQuery(gvfpr, getSequenceIDsBeingFilteredOn(gvfpr.getRequest().getSession(), sModule));
+        //size>1 only if selectedVariantIds --> in this case, getting all the tempColl, no need to filter on variantQueryDBList
+        final BasicDBList variantQueryDBList = variantQueryDBListColl.size()==1 ? variantQueryDBListColl.iterator().next() : new BasicDBList();
 
 		MongoCollection<Document> tmpVarColl = getTemporaryVariantCollection(sModule, tokenManager.readToken(gvfpr.getRequest()), false);
 		long nTempVarCount = mongoTemplate.count(new Query(), tmpVarColl.getNamespace().getCollectionName());
