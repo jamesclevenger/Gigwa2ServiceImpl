@@ -109,6 +109,7 @@ import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBObject;
 import com.mongodb.MongoCommandException;
+import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
@@ -1466,6 +1467,34 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		return new TreeMap<Long, Long>(result);
 	}
     
+    private void mergeVariantQueryDBList(BasicDBObject matchStage, BasicDBList variantQueryDBList) {
+    	Iterator<Object> queryItems = variantQueryDBList.iterator();
+		while (queryItems.hasNext()) {
+			BasicDBObject queryItem = (BasicDBObject)queryItems.next();
+			for (String key : queryItem.keySet()) {
+				BasicDBObject queryItemElement = (BasicDBObject)queryItem.get(key);
+				if (matchStage.containsKey(key)) {
+					BasicDBObject matchStageElement = (BasicDBObject)matchStage.get(key);
+					for (String elementKey : queryItemElement.keySet()) {
+						if (matchStageElement.containsKey(elementKey)) {
+							if (elementKey.equals("$lt") || elementKey.equals("$lte")) {
+								matchStageElement.put(elementKey, Math.min(matchStageElement.getLong(elementKey), queryItemElement.getLong(elementKey)));
+							} else if (elementKey.equals("$gt") || elementKey.equals("$gte")) {
+								matchStageElement.put(elementKey, Math.max(matchStageElement.getLong(elementKey), queryItemElement.getLong(elementKey)));
+							} else {
+								matchStageElement.put(elementKey, queryItemElement.get(elementKey));
+							}
+						} else {
+							matchStageElement.put(elementKey, queryItemElement.get(elementKey));
+						}
+					}
+				} else {
+					matchStage.put(key, queryItemElement);
+				}
+			}
+		}
+    }
+    
     @Override
     public Map<Long, Double> selectionFst(GigwaDensityRequest gdr) throws Exception {
     	long before = System.currentTimeMillis();
@@ -1518,7 +1547,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			String startSitePath = VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE;
 			initialMatchStage.put(startSitePath, positionSettings);
 			if (nTempVarCount == 0 && !variantQueryDBList.isEmpty())
-				initialMatchStage.put("$expr", new BasicDBObject("$and", variantQueryDBList));
+				mergeVariantQueryDBList(initialMatchStage, variantQueryDBList);
 			final long chunkIndex = i;
 			
 			List<BasicDBObject> windowQuery = new ArrayList<BasicDBObject>(baseQuery);
@@ -1632,9 +1661,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
     							// c = h¯/2
     							double gameteVariance = averageHetFrequency / 2;
-    							
-    							//System.out.println("id: " + variantId + ", allele: " + allele + ", r=" + numPopulations + ", n¯=" + averageSampleSize + ", nc=" + sampleSizeCorrection + ", p¯=" + averageAlleleFrequency + ", h¯=" + averageHetFrequency + ", s²=" + alleleVariance + ", a=" + populationVariance + ", b=" + individualVariance + ", c=" + gameteVariance);
-    							
+    							    							
     							if (!Double.isNaN(populationVariance) && !Double.isNaN(individualVariance) && !Double.isNaN(gameteVariance)) {
     								weightedFstSum += populationVariance;
     								fstWeight += populationVariance + individualVariance + gameteVariance;
@@ -1642,7 +1669,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 	        				}
 	        			}
 	        			
-	        			//System.out.println((gdr.getDisplayedRangeMin() + (chunkIndex*intervalSize)) + "-" + (chunkIndex < gdr.getDisplayedRangeIntervalCount() - 1 ? gdr.getDisplayedRangeMin() + ((chunkIndex+1)*intervalSize) : gdr.getDisplayedRangeMax()) + " : " + weightedFstSum + "/" + fstWeight + " = " + weightedFstSum / fstWeight);
 	        			result.put(rangeMin + (chunkIndex*intervalSize), weightedFstSum / fstWeight);
 	        			finalProgress.setCurrentStepProgress((short) result.size() * 100 / gdr.getDisplayedRangeIntervalCount());
             		}
@@ -1688,15 +1714,15 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		final String vrdCollName = mongoTemplate.getCollectionName(VariantRunData.class);
 		final boolean useTempColl = (nTempVarCount != 0);
 		final String usedVarCollName = useTempColl ? tmpVarColl.getNamespace().getCollectionName() : vrdCollName;
-		final HashMap<Long, Double> tajimaD = new HashMap<Long, Double>();
-		final HashMap<Long, Double> segregatingSites = new HashMap<Long, Double>();
+		final ConcurrentHashMap<Long, Double> tajimaD = new ConcurrentHashMap<Long, Double>();
+		final ConcurrentHashMap<Long, Double> segregatingSites = new ConcurrentHashMap<Long, Double>();
 		final List<Map<Long, Double>> result = Arrays.asList(tajimaD, segregatingSites);
 
 		if (gdr.getDisplayedRangeMin() == null || gdr.getDisplayedRangeMax() == null)
 			if (!findDefaultRangeMinMax(gdr, usedVarCollName, progress))
 				return result;
 				
-		List<BasicDBObject> pipeline = buildTajimaDQuery(gdr, useTempColl);
+		/*List<BasicDBObject> pipeline = buildTajimaDQuery(gdr, useTempColl);
 		
 		BasicDBObject initialMatchStage = new BasicDBObject();
 		initialMatchStage.put(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, gdr.getDisplayedSequence());
@@ -1711,29 +1737,63 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 			initialMatchStage.put("$expr", new BasicDBObject("$and", variantQueryDBList));
 		pipeline.set(0, new BasicDBObject("$match", initialMatchStage));
 		
-		//try { System.out.println(new ObjectMapper().writeValueAsString(pipeline)); }
-        //catch (Exception ignored) {}
-		
-		final int intervalSize = Math.max(1, (int) ((gdr.getDisplayedRangeMax() - gdr.getDisplayedRangeMin()) / gdr.getDisplayedRangeIntervalCount()));
 		Iterator<Document> it = mongoTemplate.getCollection(usedVarCollName).aggregate(pipeline).allowDiskUse(isAggregationAllowedToUseDisk()).iterator();
-		while (it.hasNext()) {
-			Document chunk = it.next();
-			
-			// For some reason, the $bucket output _id is returned as Integer or Long randomly...
-			long intervalStart = -1;
-			Object chunkId = chunk.get("_id");
-			if (chunkId instanceof Integer)
-				intervalStart = ((Integer)chunkId).longValue();
-			else if (chunkId instanceof Long)
-				intervalStart = ((Long)chunkId).longValue();
+		while (it.hasNext()) {*/
+		
+		List<BasicDBObject> baseQuery = buildTajimaDQuery(gdr, useTempColl);
 
-			if (intervalStart >= 0) {
-				double value = chunk.getDouble(TJD_RES_TAJIMAD);
-				double sites = (double)chunk.getInteger(TJD_RES_SEGREGATINGSITES);
-				segregatingSites.put(intervalStart, sites);
-				tajimaD.put(intervalStart, value);
-			}
+		int nConcurrentThreads = Math.min(Runtime.getRuntime().availableProcessors(), INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS);
+		final int intervalSize = Math.max(1, (int) ((gdr.getDisplayedRangeMax() - gdr.getDisplayedRangeMin()) / gdr.getDisplayedRangeIntervalCount()));
+		ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
+		
+		for (int i=0; i<gdr.getDisplayedRangeIntervalCount(); i++) {
+			BasicDBObject initialMatchStage = new BasicDBObject();
+			initialMatchStage.put(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, gdr.getDisplayedSequence());
+			if (gdr.getDisplayedVariantType() != null)
+				initialMatchStage.put(VariantData.FIELDNAME_TYPE, gdr.getDisplayedVariantType());
+			BasicDBObject positionSettings = new BasicDBObject();
+			positionSettings.put("$gte", gdr.getDisplayedRangeMin() + (i*intervalSize));
+			positionSettings.put(i < gdr.getDisplayedRangeIntervalCount() - 1 ? "$lt" : "$lte", i < gdr.getDisplayedRangeIntervalCount() - 1 ? gdr.getDisplayedRangeMin() + ((i+1)*intervalSize) : gdr.getDisplayedRangeMax());
+			String startSitePath = VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE;
+			initialMatchStage.put(startSitePath, positionSettings);
+			if (nTempVarCount == 0 && !variantQueryDBList.isEmpty())
+				mergeVariantQueryDBList(initialMatchStage, variantQueryDBList);
+			final long chunkIndex = i;
+			
+			List<BasicDBObject> windowQuery = new ArrayList<BasicDBObject>(baseQuery);
+			windowQuery.set(0, new BasicDBObject("$match", initialMatchStage));
+			
+			Thread t = new Thread() {
+				@Override
+				public void run() {
+					if (!progress.isAborted()) {
+						try { System.out.println(new ObjectMapper().writeValueAsString(windowQuery)); }
+				        catch (Exception ignored) {}
+						long intervalStart = gdr.getDisplayedRangeMin() + (chunkIndex*intervalSize);
+						AggregateIterable<Document> queryResult = mongoTemplate.getCollection(usedVarCollName).aggregate(windowQuery).allowDiskUse(isAggregationAllowedToUseDisk());
+						Document chunk = queryResult.first();  // There's only one interval per query
+						
+						if (chunk != null) {
+							double value = chunk.getDouble(TJD_RES_TAJIMAD);
+							double sites = (double)chunk.getInteger(TJD_RES_SEGREGATINGSITES);
+							segregatingSites.put(intervalStart, sites);
+							tajimaD.put(intervalStart, value);
+						} else {
+							segregatingSites.put(intervalStart, 0.0);
+							tajimaD.put(intervalStart, null);
+						}
+					}
+				}
+			};
+			
+			executor.execute(t);
 		}
+		
+		executor.shutdown();
+		executor.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
+
+		if (progress.isAborted())
+			return null;
 
 		progress.setCurrentStepProgress(100);
 		LOG.debug("selectionTajimaD treated in " + (System.currentTimeMillis() - before)/1000f + "s");
@@ -2128,15 +2188,11 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     	pipeline.add(new BasicDBObject("$project", frequencyProjection));
     	
     	// Stage 24 : Group by graph interval
-    	BasicDBObject bucketOutput = new BasicDBObject();
-    	bucketOutput.put(TJD_S24_FREQUENCYSUM, new BasicDBObject("$sum", "$" + TJD_S23_ALLELEFREQUENCY));
-    	bucketOutput.put(TJD_RES_SEGREGATINGSITES, new BasicDBObject("$sum", 1));
-    	BasicDBObject bucketGroup = new BasicDBObject();
-    	bucketGroup.put("groupBy", "$" + VariantData.FIELDNAME_REFERENCE_POSITION + ".ss");
-    	bucketGroup.put("boundaries", intervalBoundaries);
-    	bucketGroup.put("default", -1);
-    	bucketGroup.put("output", bucketOutput);
-    	pipeline.add(new BasicDBObject("$bucket", bucketGroup));
+    	BasicDBObject outputGroup = new BasicDBObject();
+    	outputGroup.put("_id", 1);
+    	outputGroup.put(TJD_S24_FREQUENCYSUM, new BasicDBObject("$sum", "$" + TJD_S23_ALLELEFREQUENCY));
+    	outputGroup.put(TJD_RES_SEGREGATINGSITES, new BasicDBObject("$sum", 1));
+    	pipeline.add(new BasicDBObject("$group", outputGroup));
     	
     	// Stage 25 : Compute the Tajima's D value
     	BasicDBObject finalProject = new BasicDBObject();
