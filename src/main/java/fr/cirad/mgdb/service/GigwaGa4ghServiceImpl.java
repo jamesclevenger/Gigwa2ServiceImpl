@@ -1780,8 +1780,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 							tajimaD.put(intervalStart, value);
 						} else {
 							segregatingSites.put(intervalStart, 0.0);
-							tajimaD.put(intervalStart, null);
 						}
+	        			progress.setCurrentStepProgress((short) segregatingSites.size() * 100 / gdr.getDisplayedRangeIntervalCount());
 					}
 				}
 			};
