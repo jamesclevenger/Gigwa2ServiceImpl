@@ -104,7 +104,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+//import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBObject;
@@ -1767,8 +1767,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 				@Override
 				public void run() {
 					if (!progress.isAborted()) {
-						try { System.out.println(new ObjectMapper().writeValueAsString(windowQuery)); }
-				        catch (Exception ignored) {}
 						long intervalStart = gdr.getDisplayedRangeMin() + (chunkIndex*intervalSize);
 						AggregateIterable<Document> queryResult = mongoTemplate.getCollection(usedVarCollName).aggregate(windowQuery).allowDiskUse(isAggregationAllowedToUseDisk());
 						Document chunk = queryResult.first();  // There's only one interval per query
