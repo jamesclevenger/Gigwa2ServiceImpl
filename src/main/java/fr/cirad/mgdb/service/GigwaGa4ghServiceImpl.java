@@ -1467,29 +1467,38 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		return new TreeMap<Long, Long>(result);
 	}
     
+    // TODO : Refactor this, i guess ?
     private void mergeVariantQueryDBList(BasicDBObject matchStage, BasicDBList variantQueryDBList) {
     	Iterator<Object> queryItems = variantQueryDBList.iterator();
 		while (queryItems.hasNext()) {
 			BasicDBObject queryItem = (BasicDBObject)queryItems.next();
 			for (String key : queryItem.keySet()) {
-				BasicDBObject queryItemElement = (BasicDBObject)queryItem.get(key);
-				if (matchStage.containsKey(key)) {
-					BasicDBObject matchStageElement = (BasicDBObject)matchStage.get(key);
-					for (String elementKey : queryItemElement.keySet()) {
-						if (matchStageElement.containsKey(elementKey)) {
-							if (elementKey.equals("$lt") || elementKey.equals("$lte")) {
-								matchStageElement.put(elementKey, Math.min(matchStageElement.getLong(elementKey), queryItemElement.getLong(elementKey)));
-							} else if (elementKey.equals("$gt") || elementKey.equals("$gte")) {
-								matchStageElement.put(elementKey, Math.max(matchStageElement.getLong(elementKey), queryItemElement.getLong(elementKey)));
-							} else {
-								matchStageElement.put(elementKey, queryItemElement.get(elementKey));
+				if (queryItem.get(key) instanceof BasicDBObject) {
+					BasicDBObject queryItemElement = (BasicDBObject)queryItem.get(key);
+					if (matchStage.containsKey(key)) {
+						if (matchStage.get(key) instanceof BasicDBObject) {
+							BasicDBObject matchStageElement = (BasicDBObject)matchStage.get(key);
+							for (String elementKey : queryItemElement.keySet()) {
+								if (matchStageElement.containsKey(elementKey)) {
+									if (elementKey.equals("$lt") || elementKey.equals("$lte")) {
+										matchStageElement.put(elementKey, Math.min(matchStageElement.getLong(elementKey), queryItemElement.getLong(elementKey)));
+									} else if (elementKey.equals("$gt") || elementKey.equals("$gte")) {
+										matchStageElement.put(elementKey, Math.max(matchStageElement.getLong(elementKey), queryItemElement.getLong(elementKey)));
+									} else {
+										matchStageElement.put(elementKey, queryItemElement.get(elementKey));
+									}
+								} else {
+									matchStageElement.put(elementKey, queryItemElement.get(elementKey));
+								}
 							}
 						} else {
-							matchStageElement.put(elementKey, queryItemElement.get(elementKey));
+							matchStage.put(key, queryItemElement);
 						}
+					} else {
+						matchStage.put(key, queryItemElement);
 					}
 				} else {
-					matchStage.put(key, queryItemElement);
+					matchStage.put(key, queryItem.get(key));
 				}
 			}
 		}
@@ -1721,24 +1730,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		if (gdr.getDisplayedRangeMin() == null || gdr.getDisplayedRangeMax() == null)
 			if (!findDefaultRangeMinMax(gdr, usedVarCollName, progress))
 				return result;
-				
-		/*List<BasicDBObject> pipeline = buildTajimaDQuery(gdr, useTempColl);
-		
-		BasicDBObject initialMatchStage = new BasicDBObject();
-		initialMatchStage.put(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, gdr.getDisplayedSequence());
-		if (gdr.getDisplayedVariantType() != null)
-			initialMatchStage.put(VariantData.FIELDNAME_TYPE, gdr.getDisplayedVariantType());
-		BasicDBObject positionSettings = new BasicDBObject();
-		positionSettings.put("$gte", gdr.getDisplayedRangeMin());
-		positionSettings.put("$lte", gdr.getDisplayedRangeMax());
-		String startSitePath = VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE;
-		initialMatchStage.put(startSitePath, positionSettings);
-		if (nTempVarCount == 0 && !variantQueryDBList.isEmpty())
-			initialMatchStage.put("$expr", new BasicDBObject("$and", variantQueryDBList));
-		pipeline.set(0, new BasicDBObject("$match", initialMatchStage));
-		
-		Iterator<Document> it = mongoTemplate.getCollection(usedVarCollName).aggregate(pipeline).allowDiskUse(isAggregationAllowedToUseDisk()).iterator();
-		while (it.hasNext()) {*/
 		
 		List<BasicDBObject> baseQuery = buildTajimaDQuery(gdr, useTempColl);
 
