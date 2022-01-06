@@ -51,6 +51,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -108,7 +109,6 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.model.Aggregates;
-import com.mongodb.client.model.Projections;
 
 import fr.cirad.controller.GigwaMethods;
 import fr.cirad.mgdb.exporting.IExportHandler;
@@ -143,7 +143,6 @@ import fr.cirad.tools.mgdb.GenotypingDataQueryBuilder;
 import fr.cirad.tools.mongo.MongoTemplateManager;
 import fr.cirad.tools.security.base.AbstractTokenManager;
 import fr.cirad.utils.Constants;
-import ga4gh.Variants;
 import htsjdk.variant.variantcontext.GenotypeLikelihoods;
 import htsjdk.variant.vcf.VCFCompoundHeaderLine;
 import htsjdk.variant.vcf.VCFConstants;
@@ -152,7 +151,6 @@ import htsjdk.variant.vcf.VCFFormatHeaderLine;
 import htsjdk.variant.vcf.VCFHeaderLine;
 import htsjdk.variant.vcf.VCFInfoHeaderLine;
 import htsjdk.variant.vcf.VCFSimpleHeaderLine;
-import java.util.regex.Pattern;
 
 /**
  *
@@ -378,10 +376,26 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 }
                 variantFeatureFilterList.add(orSelectedVariantTypesList);
             }
+
+            /* Step to match variants position range for visualization (differs from the 2 next, which is for defining the subset of data Gigwa is currently working with: it they are contradictory it still makes sense and means user is trying to view variants outside the range selected in Gigwa) */
+            if (GigwaDensityRequest.class.isAssignableFrom(gsvr.getClass())) {
+                variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, ((GigwaDensityRequest) gsvr).getDisplayedSequence()));
+    
+                BasicDBObject posCrit = new BasicDBObject();
+                Long min = ((GigwaDensityRequest) gsvr).getDisplayedRangeMin(), max = ((GigwaDensityRequest) gsvr).getDisplayedRangeMax();
+                if (min != null && min != -1)
+                    posCrit.put("$gte", min);
+                if (max != null && max != -1)
+                    posCrit.put("$lte", max);
+                if (!posCrit.isEmpty())
+                variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, posCrit));
+            }
+    
             /* Step to match selected chromosomes */
             if (selectedSequences != null && selectedSequences.size() > 0 && selectedSequences.size() != getProjectSequences(sModule, projId).size()) {
                 variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, new BasicDBObject("$in", selectedSequences)));
             }
+    
             /* Step to match variants that have a position included in the specified range */
             if ((gsvr.getStart() != null && gsvr.getStart() != -1) || (gsvr.getEnd() != null && gsvr.getEnd() != -1)) {
                 BasicDBObject posCrit = new BasicDBObject();
@@ -391,6 +405,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     posCrit.put("$lte", gsvr.getEnd());
                 variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, posCrit));
             }
+            
             /* Step to match selected number of alleles */
             if (alleleCountList != null) {
                 BasicDBList orList3 = new BasicDBList();
