@@ -372,12 +372,18 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             variantFeatureFilterList.add(orSelectedVariantTypesList);
         }
         
-        boolean fBeingCalledForRangeVisualization = GigwaDensityRequest.class.isAssignableFrom(gsvr.getClass());
-
-        /* Step to match variants position range for visualization (differs from the 2 next, which is for defining the subset of data Gigwa is currently working with: it they are contradictory it's normal, it means user is trying to view variants outside the range selected in Gigwa) */
-        if (fBeingCalledForRangeVisualization) {
+        /* Step to match variants position range for visualization (differs from the 2 next, which is for defining the subset of data Gigwa is currently working with: it they are contradictory it still makes sense and means user is trying to view variants outside the range selected in Gigwa) */
+        if (GigwaDensityRequest.class.isAssignableFrom(gsvr.getClass())) {
             variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, ((GigwaDensityRequest) gsvr).getDisplayedSequence()));
-            variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$gte", ((GigwaDensityRequest) gsvr).getDisplayedRangeMin()).append("$lte", ((GigwaDensityRequest) gsvr).getDisplayedRangeMax())));
+
+            BasicDBObject posCrit = new BasicDBObject();
+            Long min = ((GigwaDensityRequest) gsvr).getDisplayedRangeMin(), max = ((GigwaDensityRequest) gsvr).getDisplayedRangeMax();
+            if (min != null && min != -1)
+                posCrit.put("$gte", min);
+            if (max != null && max != -1)
+                posCrit.put("$lte", max);
+            if (!posCrit.isEmpty())
+            variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, posCrit));
         }
 
         /* Step to match selected chromosomes */
