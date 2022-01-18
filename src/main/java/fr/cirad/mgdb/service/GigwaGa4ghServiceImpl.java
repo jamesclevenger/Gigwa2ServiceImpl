@@ -1385,8 +1385,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		if (gsvdr.getDisplayedRangeMin() == null)
 			gsvdr.setDisplayedRangeMin((Long) Helper.readPossiblyNestedField(aggResult, startFieldPath, "; "));
 		
-		sort = new BasicDBObject("$sort", new BasicDBObject(startFieldPath, -1));		
-		cursor = mongoTemplate.getCollection(collectionName).aggregate(Arrays.asList(match, sort, limit)).iterator();
+		sort = new BasicDBObject("$sort", new BasicDBObject(startFieldPath, -1));
+		cursor = mongoTemplate.getCollection(collectionName).aggregate(Arrays.asList(match, sort, limit)).collation(IExportHandler.collationObj).iterator();
 		if (!cursor.hasNext()) {
 			if (progress != null)
 				progress.markAsComplete();
