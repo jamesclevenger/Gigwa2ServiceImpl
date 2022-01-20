@@ -1000,12 +1000,13 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         }
         if (partialCountArray == null)
         	nTotalCount = countVariants(gsvr, true);
+        else
+            LOG.info("findVariants found " + nTotalCount + " results in " + (System.currentTimeMillis() - before) / 1000d + "s");
 
         if (progress.isAborted() || progress.getError() != null)
             return 0;
 
         progress.markAsComplete();
-        LOG.info("findVariants found " + nTotalCount + " results in " + (System.currentTimeMillis() - before) / 1000d + "s");
         return nTotalCount;
     }
 
@@ -1368,6 +1369,14 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		
 		BasicDBList matchAndList = new BasicDBList();
 		matchAndList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, gsvdr.getDisplayedSequence()));
+        if ((gsvdr.getStart() != null && gsvdr.getStart() != -1) || (gsvdr.getEnd() != null && gsvdr.getEnd() != -1)) {
+            BasicDBObject posCrit = new BasicDBObject();
+            if (gsvdr.getStart() != null && gsvdr.getStart() != -1)
+                posCrit.put("$gte", gsvdr.getStart());
+            if (gsvdr.getEnd() != null && gsvdr.getEnd() != -1)
+                posCrit.put("$lte", gsvdr.getEnd());
+            matchAndList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, posCrit));
+        }
 		if (gsvdr.getDisplayedVariantType() != null)
 			matchAndList.add(new BasicDBObject(VariantData.FIELDNAME_TYPE, gsvdr.getDisplayedVariantType()));
 		BasicDBObject match = new BasicDBObject("$match", new BasicDBObject("$and", matchAndList));
@@ -3401,12 +3410,6 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                     
                     if (token == null)
                         return null;
-                    
-//                    ProgressIndicator progress = ProgressIndicator.get(token);
-//                    if (progress == null) {
-//                        progress = new ProgressIndicator(token, new String[0]);
-//                        ProgressIndicator.registerProgressIndicator(progress);
-//                    }
 
                     MongoTemplate mongoTemplate = MongoTemplateManager.get(info[0]);
 
@@ -3415,19 +3418,16 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
                     MongoCollection<Document> varCollForBuildingRows = tempVarColl.countDocuments() == 0 ? mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)) : tempVarColl;
                     FindIterable<Document> iterable = varCollForBuildingRows.find(!variantQueryDBList.isEmpty() ? new BasicDBObject("$and", variantQueryDBList) : new BasicDBObject());
+                    iterable.collation(IExportHandler.collationObj);
                     if (gsvr.getSortBy() != null && gsvr.getSortBy().length() > 0)
                         iterable.sort(new BasicDBObject(gsvr.getSortBy(), Integer.valueOf("DESC".equalsIgnoreCase(gsvr.getSortDir()) ? -1 : 1)));
                     else
                     {
                         Document sortObj = new Document(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1);
                         sortObj.put(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
-                        sortObj.put("_id",1);
                         iterable.sort(sortObj);
                     }
-                    iterable.collation(IExportHandler.collationObj);
                     iterable.skip(Integer.parseInt(gsvr.getPageToken()) * gsvr.getPageSize()).limit(gsvr.getPageSize());    // skip the results we don't want
-
-//                    progress.markAsComplete();
                     cursor = iterable.iterator();
                 }
             }
@@ -3437,8 +3437,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 throw new GAException(ex);
             }
             globalCount = count == null ? 0 : count;
-            // get the cursor containing variant from previously created temp collection 
-            // return null if cursor is empty 
+            // get the cursor containing variant from previously created temp collection
+            // return null if cursor is empty
             if (cursor != null && cursor.hasNext()) {
                 // we need to get callSet name and position in the callSet list to get corresponding genotype
                 // if we don't want to retrieve genotype, just send an empty individuals list? 
