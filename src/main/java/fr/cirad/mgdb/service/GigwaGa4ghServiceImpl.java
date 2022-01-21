@@ -2289,16 +2289,15 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 		final long rangeMin = gvfpr.getDisplayedRangeMin();
 		final ProgressIndicator finalProgress = progress;
 			
-		HashMap<Integer, List<Integer>> individualIndexToSampleListMap = new HashMap<Integer, List<Integer>>();
 		if (gvfpr.getPlotIndividuals() == null || gvfpr.getPlotIndividuals().size() == 0)
 			gvfpr.setPlotIndividuals(MgdbDao.getProjectIndividuals(sModule, projId));
 
-        Iterator<String> indIt = gvfpr.getPlotIndividuals().iterator();
+        List<Integer>[] sampleIDsGroupedBySortedIndividuals = new List[gvfpr.getPlotIndividuals().size()];
+        TreeMap<String, ArrayList<GenotypingSample>> samplesByIndividual = MgdbDao.getSamplesByIndividualForProject(sModule, projId, gvfpr.getPlotIndividuals());
         int k = 0;
-        while (indIt.hasNext()) {
-        	String ind = indIt.next();
-			List<Integer> sampleIndexes = MgdbDao.getSamplesForProject(sModule, projId, Arrays.asList(ind)).stream().map(sp -> sp.getId()).collect(Collectors.toList());
-			individualIndexToSampleListMap.put(k++, sampleIndexes);
+        for (String ind : gvfpr.getPlotIndividuals()) {
+        	sampleIDsGroupedBySortedIndividuals[k] = samplesByIndividual.get(ind).stream().map(sp -> sp.getId()).collect(Collectors.toList());
+            k++;
 		}
 		
 		for (int i=0; i<gvfpr.getDisplayedRangeIntervalCount(); i++)
@@ -2329,7 +2328,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             			ArrayList<Object> individualValuePaths = new ArrayList<>();
             			for (int j=0; j<gvfpr.getPlotIndividuals().size(); j++)
             			{
-            				List<Integer> individualSamples = individualIndexToSampleListMap.get(j);
+            				List<Integer> individualSamples = sampleIDsGroupedBySortedIndividuals[j];
             				if (individualSamples.size() == 1)
             					individualValuePaths.add("$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + individualSamples.get(0) + "." + SampleGenotype.SECTION_ADDITIONAL_INFO + "." + gvfpr.getVcfField());
             				else
