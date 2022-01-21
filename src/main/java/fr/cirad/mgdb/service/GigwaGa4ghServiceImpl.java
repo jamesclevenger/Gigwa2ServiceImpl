@@ -2157,9 +2157,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         int projId = Integer.parseInt(info[1]);
     	
     	List<String> selectedIndividuals = new ArrayList<String>();
-        selectedIndividuals.addAll(gdr.getCallSetIds().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
-        if (gdr.getCallSetIds2().size() > 0)
-        	selectedIndividuals.addAll(gdr.getCallSetIds2().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
+        selectedIndividuals.addAll(gdr.getPlotIndividuals().size() == 0 ? MgdbDao.getProjectIndividuals(sModule, projId) : gdr.getPlotIndividuals().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaMethods.ID_SEPARATOR))).collect(Collectors.toSet()));
         
         TreeMap<String, List<GenotypingSample>> individualToSampleListMap = new TreeMap<String, List<GenotypingSample>>();
         individualToSampleListMap.putAll(MgdbDao.getSamplesByIndividualForProject(sModule, projId, selectedIndividuals));
@@ -2337,35 +2335,34 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             if (!findDefaultRangeMinMax(gvfpr, usedVarCollName, progress))
                 return result;
 
-        final int intervalSize = Math.max(1, (int) ((gvfpr.getDisplayedRangeMax() - gvfpr.getDisplayedRangeMin()) / gvfpr.getDisplayedRangeIntervalCount()));
-        final ArrayList<Thread> threadsToWaitFor = new ArrayList<Thread>();
-        final long rangeMin = gvfpr.getDisplayedRangeMin();
-        final ProgressIndicator finalProgress = progress;
-            
-        HashMap<Integer, List<Integer>> individualIndexToSampleListMap = new HashMap<Integer, List<Integer>>();
-        if (gvfpr.getPlotIndividuals() == null || gvfpr.getPlotIndividuals().size() == 0)
-            gvfpr.setPlotIndividuals(MgdbDao.getProjectIndividuals(sModule, projId));
+		final int intervalSize = Math.max(1, (int) ((gvfpr.getDisplayedRangeMax() - gvfpr.getDisplayedRangeMin()) / gvfpr.getDisplayedRangeIntervalCount()));
+		final ArrayList<Thread> threadsToWaitFor = new ArrayList<Thread>();
+		final long rangeMin = gvfpr.getDisplayedRangeMin();
+		final ProgressIndicator finalProgress = progress;
+			
+		if (gvfpr.getPlotIndividuals() == null || gvfpr.getPlotIndividuals().size() == 0)
+			gvfpr.setPlotIndividuals(MgdbDao.getProjectIndividuals(sModule, projId));
 
-        Iterator<String> indIt = gvfpr.getPlotIndividuals().iterator();
+        List<Integer>[] sampleIDsGroupedBySortedIndividuals = new List[gvfpr.getPlotIndividuals().size()];
+        TreeMap<String, ArrayList<GenotypingSample>> samplesByIndividual = MgdbDao.getSamplesByIndividualForProject(sModule, projId, gvfpr.getPlotIndividuals());
         int k = 0;
-        while (indIt.hasNext()) {
-            String ind = indIt.next();
-            List<Integer> sampleIndexes = MgdbDao.getSamplesForProject(sModule, projId, Arrays.asList(ind)).stream().map(sp -> sp.getId()).collect(Collectors.toList());
-            individualIndexToSampleListMap.put(k++, sampleIndexes);
-        }
-        
-        for (int i=0; i<gvfpr.getDisplayedRangeIntervalCount(); i++)
-        {
-            List<Criteria> crits = new ArrayList<Criteria>();
-            crits.add(Criteria.where(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE).is(gvfpr.getDisplayedSequence()));
-            if (gvfpr.getDisplayedVariantType() != null)
-                crits.add(Criteria.where(VariantData.FIELDNAME_TYPE).is(gvfpr.getDisplayedVariantType()));
-            String startSitePath = VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE;
-            crits.add(Criteria.where(startSitePath).gte(gvfpr.getDisplayedRangeMin() + (i*intervalSize)));
-            if (i < gvfpr.getDisplayedRangeIntervalCount() - 1)
-                crits.add(Criteria.where(startSitePath).lt(gvfpr.getDisplayedRangeMin() + ((i+1)*intervalSize)));
-            else
-                crits.add(Criteria.where(startSitePath).lte(gvfpr.getDisplayedRangeMax()));
+        for (String ind : gvfpr.getPlotIndividuals()) {
+        	sampleIDsGroupedBySortedIndividuals[k] = samplesByIndividual.get(ind).stream().map(sp -> sp.getId()).collect(Collectors.toList());
+            k++;
+		}
+		
+		for (int i=0; i<gvfpr.getDisplayedRangeIntervalCount(); i++)
+		{
+			List<Criteria> crits = new ArrayList<Criteria>();
+			crits.add(Criteria.where(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE).is(gvfpr.getDisplayedSequence()));
+			if (gvfpr.getDisplayedVariantType() != null)
+				crits.add(Criteria.where(VariantData.FIELDNAME_TYPE).is(gvfpr.getDisplayedVariantType()));
+			String startSitePath = VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE;
+			crits.add(Criteria.where(startSitePath).gte(gvfpr.getDisplayedRangeMin() + (i*intervalSize)));
+			if (i < gvfpr.getDisplayedRangeIntervalCount() - 1)
+				crits.add(Criteria.where(startSitePath).lt(gvfpr.getDisplayedRangeMin() + ((i+1)*intervalSize)));
+			else
+				crits.add(Criteria.where(startSitePath).lte(gvfpr.getDisplayedRangeMax()));
 
             final Query query = new Query(new Criteria().andOperator(crits.toArray(new Criteria[crits.size()])));
                         
@@ -2378,45 +2375,45 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
                         final ArrayList<BasicDBObject> pipeline = new ArrayList<BasicDBObject>();
 
-                        BasicDBObject group = new BasicDBObject();
-                        ArrayList<Object> individualValuePaths = new ArrayList<>();
-                        for (int j=0; j<gvfpr.getPlotIndividuals().size(); j++)
-                        {
-                            List<Integer> individualSamples = individualIndexToSampleListMap.get(j);
-                            if (individualSamples.size() == 1)
-                                individualValuePaths.add("$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + individualSamples.get(0) + "." + SampleGenotype.SECTION_ADDITIONAL_INFO + "." + gvfpr.getVcfField());
-                            else
-                            {    // only take into account the sample with the highest value
-                                if (group.size() == 0)
-                                    group.put("_id", null);
-                                for (int l=0; l<variantsInInterval.size(); l++)
-                                {
-                                    ArrayList<BasicDBObject> sampleFields = new ArrayList<>();
-                                    for (int k=0; k<individualSamples.size(); k++)
-                                    {
-                                        if (l == 0)
-                                            group.put(gvfpr.getVcfField() + individualSamples.get(k), new BasicDBObject("$addToSet", "$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + individualSamples.get(k) + "." + SampleGenotype.SECTION_ADDITIONAL_INFO + "." + gvfpr.getVcfField()));
-                                        sampleFields.add(new BasicDBObject("$arrayElemAt", new Object[] {"$" + gvfpr.getVcfField() + individualSamples.get(k), l}));
-                                    }
-                                    individualValuePaths.add(new BasicDBObject("$max", sampleFields));
-                                }
-                            }
-                        }
-                        if (group.size() > 0)
-                            pipeline.add(new BasicDBObject("$group", group));
-                        pipeline.add(new BasicDBObject("$project", new BasicDBObject(gvfpr.getVcfField(), new BasicDBObject("$sum", individualValuePaths))));
-                        
-                        BasicDBList matchList = new BasicDBList();
-                        matchList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, new BasicDBObject("$in", variantsInInterval)));
-                        if (nTempVarCount == 0 && !variantQueryDBList.isEmpty())
-                            matchList.addAll(variantQueryDBList);
-                        pipeline.add(0, new BasicDBObject("$match", new BasicDBObject("$and", matchList)));
-                        
-                        Iterator<Document> it = mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).aggregate(pipeline).iterator();
-                        result.put(rangeMin + (chunkIndex*intervalSize), it.hasNext() ? Double.valueOf(it.next().get(gvfpr.getVcfField()).toString()).intValue() : 0);
-                        finalProgress.setCurrentStepProgress((short) result.size() * 100 / gvfpr.getDisplayedRangeIntervalCount());
-                    }
-                }
+            			BasicDBObject group = new BasicDBObject();
+            			ArrayList<Object> individualValuePaths = new ArrayList<>();
+            			for (int j=0; j<gvfpr.getPlotIndividuals().size(); j++)
+            			{
+            				List<Integer> individualSamples = sampleIDsGroupedBySortedIndividuals[j];
+            				if (individualSamples.size() == 1)
+            					individualValuePaths.add("$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + individualSamples.get(0) + "." + SampleGenotype.SECTION_ADDITIONAL_INFO + "." + gvfpr.getVcfField());
+            				else
+            				{	// only take into account the sample with the highest value
+            					if (group.size() == 0)
+            						group.put("_id", null);
+            					for (int l=0; l<variantsInInterval.size(); l++)
+            					{
+                					ArrayList<BasicDBObject> sampleFields = new ArrayList<>();
+	            					for (int k=0; k<individualSamples.size(); k++)
+	            					{
+	            						if (l == 0)
+	            							group.put(gvfpr.getVcfField() + individualSamples.get(k), new BasicDBObject("$addToSet", "$" + VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + individualSamples.get(k) + "." + SampleGenotype.SECTION_ADDITIONAL_INFO + "." + gvfpr.getVcfField()));
+	                					sampleFields.add(new BasicDBObject("$arrayElemAt", new Object[] {"$" + gvfpr.getVcfField() + individualSamples.get(k), l}));
+	            					}
+                					individualValuePaths.add(new BasicDBObject("$max", sampleFields));
+            					}
+            				}
+            			}
+            			if (group.size() > 0)
+            				pipeline.add(new BasicDBObject("$group", group));
+            			pipeline.add(new BasicDBObject("$project", new BasicDBObject(gvfpr.getVcfField(), new BasicDBObject("$sum", individualValuePaths))));
+            			
+            			BasicDBList matchList = new BasicDBList();
+            			matchList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, new BasicDBObject("$in", variantsInInterval)));
+            			if (nTempVarCount == 0 && !variantQueryDBList.isEmpty())
+            				matchList.addAll(variantQueryDBList);
+            			pipeline.add(0, new BasicDBObject("$match", new BasicDBObject("$and", matchList)));
+            			
+	        			Iterator<Document> it = mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).aggregate(pipeline).iterator();
+	        			result.put(rangeMin + (chunkIndex*intervalSize), it.hasNext() ? Double.valueOf(it.next().get(gvfpr.getVcfField()).toString()).intValue() : 0);
+	        			finalProgress.setCurrentStepProgress((short) result.size() * 100 / gvfpr.getDisplayedRangeIntervalCount());
+            		}
+            	}
             };
 
             if (chunkIndex%INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS  == (INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS-1))
