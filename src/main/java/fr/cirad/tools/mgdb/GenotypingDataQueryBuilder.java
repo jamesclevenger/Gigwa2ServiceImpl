@@ -223,7 +223,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
     public GenotypingDataQueryBuilder(GigwaSearchVariantsRequest gsvr, MongoCollection<Document> tempExportColl, BasicDBList variantQueryDBList, boolean fForCounting) throws Exception
     {
         this.variantQueryDBList = variantQueryDBList;
-        Helper.convertIdFiltersToRunFormat(this.variantQueryDBList);
+        Helper.convertIdFiltersToRunFormat(Arrays.asList(this.variantQueryDBList));
         
         String info[] = GigwaSearchVariantsRequest.getInfoFromId(gsvr.getVariantSetId(), 2);
         String sModule = info[0];
