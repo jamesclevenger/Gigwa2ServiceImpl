@@ -2521,7 +2521,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
                 info.put("sequence", sequence.get(Sequence.FIELDNAME_SEQUENCE));
 
                 info.put("length", sequence.get(Sequence.FIELDNAME_LENGTH));
-                info.put("cheksum", sequence.get(Sequence.FIELDNAME_CHECKSUM));
+                info.put("checksum", sequence.get(Sequence.FIELDNAME_CHECKSUM));
 
                 listSeqInfo.put((String) sequence.get("_id"), info);
 
