@@ -3313,15 +3313,15 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             String species = MongoTemplateManager.getSpecies(module);
             String taxoDesc = (species != null ? "Species: " + species : "") + (taxon != null && !taxon.equals(species) ? (species != null ? " ; " : "") + "Taxon: " + taxon : "");
             ReferenceSet referenceSet = ReferenceSet.newBuilder()
-                    .setId(module)
-                    .setName(module)
-                    .setMd5checksum("")    /* not supported at the time */
-                    .setSourceAccessions(list)
-                    .setNcbiTaxonId(MongoTemplateManager.getTaxonId(module))
-                    .setDescription(    (taxoDesc.isEmpty() ? "" : (taxoDesc + " ; "))
-                                        + mongoTemplate.getCollection(mongoTemplate.getCollectionName(GenotypingProject.class)).distinct(GenotypingProject.FIELDNAME_SEQUENCES, String.class).into(new ArrayList<>()).size() + " references ; "
-                                        + mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).estimatedDocumentCount() + " markers")
-                    .build();
+                .setId(module)
+                .setName(module)
+                .setMd5checksum("")    /* not supported at the time */
+                .setSourceAccessions(list)
+                .setNcbiTaxonId(MongoTemplateManager.getTaxonId(module))
+                .setDescription(    (taxoDesc.isEmpty() ? "" : (taxoDesc + " ; "))
+                                    + mongoTemplate.getCollection(mongoTemplate.getCollectionName(GenotypingProject.class)).distinct(GenotypingProject.FIELDNAME_SEQUENCES, String.class).into(new ArrayList<>()).size() + " references ; "
+                                    + mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).estimatedDocumentCount() + " markers")
+                .build();
             listRef.add(referenceSet);
         }
 
