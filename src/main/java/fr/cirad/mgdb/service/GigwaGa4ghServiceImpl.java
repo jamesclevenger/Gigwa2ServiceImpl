@@ -150,6 +150,7 @@ import fr.cirad.tools.mongo.MongoTemplateManager;
 import fr.cirad.tools.security.base.AbstractTokenManager;
 import fr.cirad.utils.Constants;
 import htsjdk.variant.variantcontext.GenotypeLikelihoods;
+import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.vcf.VCFCompoundHeaderLine;
 import htsjdk.variant.vcf.VCFConstants;
 import htsjdk.variant.vcf.VCFFilterHeaderLine;
@@ -1145,9 +1146,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
 
             LOG.info((gsver.isKeepExportOnServer() ? "On-server" : "Direct-download") + " export requested: " + processId);
             if (gsver.isKeepExportOnServer()) {
-                Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-                String sExportingUser = auth == null || "anonymousUser".equals(auth.getName()) ? "anonymousUser" : auth.getName();
-                String relativeOutputFolder = FRONTEND_URL + File.separator + TMP_OUTPUT_FOLDER + File.separator + sExportingUser + File.separator + Helper.convertToMD5(processId) + File.separator;
+                String relativeOutputFolder = FRONTEND_URL + File.separator + TMP_OUTPUT_FOLDER + File.separator + IExportHandler.getLoggedUserName() + File.separator + Helper.convertToMD5(processId) + File.separator;
                 File outputLocation = new File(gsver.getRequest().getSession().getServletContext().getRealPath(File.separator + relativeOutputFolder));
                 if (!outputLocation.exists() && !outputLocation.mkdirs()) {
                     throw new Exception("Unable to create folder: " + outputLocation);
@@ -2948,7 +2947,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
      * GA4GH methods, from methods interface v0.6.1 - opencb/ga4gh 04/2016
      */
     @Override
-    public VariantSet getVariantSet(String id) throws AvroRemoteException, GAException
+    public VariantSet getVariantSet(String id) throws AvroRemoteException
     {
         VariantSet variantSet = null;
         // get information from id
@@ -2987,7 +2986,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public Variant getVariant(String id) throws AvroRemoteException, GAException {
+    public Variant getVariant(String id) throws AvroRemoteException {
         return getVariantWithGenotypes(id, new ArrayList() /* all individuals */);
     }
 
@@ -3022,7 +3021,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public CallSet getCallSet(String id) throws AvroRemoteException, GAException {
+    public CallSet getCallSet(String id) throws AvroRemoteException {
         CallSet callSet = null;
 
         // get information from id
@@ -3046,7 +3045,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public ReferenceSet getReferenceSet(String id) throws AvroRemoteException, GAException {
+    public ReferenceSet getReferenceSet(String id) throws AvroRemoteException {
         ReferenceSet referenceSet = null;
 
         MongoTemplate mongoTemplate = MongoTemplateManager.get(id);
@@ -3092,7 +3091,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public Reference getReference(String id) throws AvroRemoteException, GAException {
+    public Reference getReference(String id) throws AvroRemoteException {
 
         Reference reference = null;
 
@@ -3138,7 +3137,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public ListReferenceBasesResponse getReferenceBases(String id, ListReferenceBasesRequest lrbr) throws AvroRemoteException, GAException
+    public ListReferenceBasesResponse getReferenceBases(String id, ListReferenceBasesRequest lrbr) throws AvroRemoteException
     {
            String[] info = GigwaSearchVariantsRequest.getInfoFromId(id, 3);
            String module = info[0];
@@ -3204,10 +3203,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public SearchCallSetsResponse searchCallSets(SearchCallSetsRequest scsr) throws AvroRemoteException, GAException {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String sCurrentUser = auth == null || "anonymousUser".equals(auth.getName()) ? "anonymousUser" : auth.getName();
-
+    public SearchCallSetsResponse searchCallSets(SearchCallSetsRequest scsr) throws AvroRemoteException {
         // get information from id
         String[] info = GigwaSearchVariantsRequest.getInfoFromId(scsr.getVariantSetId(), 2);
         if (info == null)
@@ -3221,7 +3217,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         String nextPageToken;
 
         String module = info[0];
-        LinkedHashMap<String, Individual> indMap = mgdbDao.loadIndividualsWithAllMetadata(module, sCurrentUser, Arrays.asList(Integer.parseInt(info[1])), null);
+        LinkedHashMap<String, Individual> indMap = mgdbDao.loadIndividualsWithAllMetadata(module, IExportHandler.getLoggedUserName(), Arrays.asList(Integer.parseInt(info[1])), null);
 
         List<CallSet> listCallSet = new ArrayList<>();
         int size = indMap.size();
@@ -3270,9 +3266,8 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public SearchReferenceSetsResponse searchReferenceSets(SearchReferenceSetsRequest srsr) throws AvroRemoteException, GAException {
+    public SearchReferenceSetsResponse searchReferenceSets(SearchReferenceSetsRequest srsr) throws AvroRemoteException {
         List<String> list = new ArrayList<>();
-        List<ReferenceSet> listRef = new ArrayList<>();
 
         List<String> listModules = new ArrayList<>(MongoTemplateManager.getAvailableModules());
         Collections.sort(listModules);
@@ -3305,31 +3300,47 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
             nextPageToken = Integer.toString(pageToken + 1);
         }
 
-        // add a Reference Set for each existing module
-        for (int i = start; i < end; i++) {
-            module = listModules.get(i);
-            MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
-            String taxon = MongoTemplateManager.getTaxonName(module);
-            String species = MongoTemplateManager.getSpecies(module);
-            String taxoDesc = (species != null ? "Species: " + species : "") + (taxon != null && !taxon.equals(species) ? (species != null ? " ; " : "") + "Taxon: " + taxon : "");
-            ReferenceSet referenceSet = ReferenceSet.newBuilder()
-                .setId(module)
-                .setName(module)
-                .setMd5checksum("")    /* not supported at the time */
-                .setSourceAccessions(list)
-                .setNcbiTaxonId(MongoTemplateManager.getTaxonId(module))
-                .setDescription(    (taxoDesc.isEmpty() ? "" : (taxoDesc + " ; "))
-                                    + mongoTemplate.getCollection(mongoTemplate.getCollectionName(GenotypingProject.class)).distinct(GenotypingProject.FIELDNAME_SEQUENCES, String.class).into(new ArrayList<>()).size() + " references ; "
-                                    + mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).estimatedDocumentCount() + " markers")
-                .build();
-            listRef.add(referenceSet);
+        List<ReferenceSet> listRef = Collections.synchronizedList(new ArrayList<>());
+        List<Collection<String>> splitModuleCollections = Helper.evenlySplitCollection(start != 0 || end != listModules.size() ? listModules.subList(start, end) : listModules, Runtime.getRuntime().availableProcessors() * 2);
+        ExecutorService executor = Executors.newFixedThreadPool(splitModuleCollections.size());
+        for (int i=0; i<splitModuleCollections.size(); i++) {
+            Collection<String> modules = splitModuleCollections.get(i);
+            Thread t = new Thread() {
+                public void run() {
+                    // add a Reference Set for each existing module
+                    for (String module : modules) {
+                        MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
+                        String taxon = MongoTemplateManager.getTaxonName(module);
+                        String species = MongoTemplateManager.getSpecies(module);
+                        String taxoDesc = (species != null ? "Species: " + species : "") + (taxon != null && !taxon.equals(species) ? (species != null ? " ; " : "") + "Taxon: " + taxon : "");
+                        ReferenceSet referenceSet = ReferenceSet.newBuilder()
+                            .setId(module)
+                            .setName(module)
+                            .setMd5checksum("")    /* not supported at the time */
+                            .setSourceAccessions(list)
+                            .setNcbiTaxonId(MongoTemplateManager.getTaxonId(module))
+                            .setDescription(    (taxoDesc.isEmpty() ? "" : (taxoDesc + " ; "))
+                                                + mongoTemplate.getCollection(mongoTemplate.getCollectionName(GenotypingProject.class)).distinct(GenotypingProject.FIELDNAME_SEQUENCES, String.class).into(new ArrayList<>()).size() + " references ; "
+                                                + mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).estimatedDocumentCount() + " markers")
+                            .build();
+                        listRef.add(referenceSet);
+                    }
+                }
+            };
+            executor.execute(t);
         }
-
+        executor.shutdown();
+        try {
+            executor.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
+        } catch (InterruptedException e) {
+            throw new AvroRemoteException(e);
+        }
+        
         return SearchReferenceSetsResponse.newBuilder().setReferenceSets(listRef).setNextPageToken(nextPageToken).build();
     }
 
     @Override
-    public SearchVariantSetsResponse searchVariantSets(SearchVariantSetsRequest svsr) throws AvroRemoteException, GAException {
+    public SearchVariantSetsResponse searchVariantSets(SearchVariantSetsRequest svsr) throws AvroRemoteException {
 
         SearchVariantSetsResponse response = null;
 
@@ -3400,7 +3411,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public GigwaSearchVariantsResponse searchVariants(SearchVariantsRequest svr) throws AvroRemoteException, GAException {
+    public GigwaSearchVariantsResponse searchVariants(SearchVariantsRequest svr) throws AvroRemoteException {
 
         GigwaSearchVariantsResponse response = null;
         // get extra info
@@ -3531,7 +3542,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
     }
 
     @Override
-    public SearchReferencesResponse searchReferences(SearchReferencesRequest srr) throws AvroRemoteException, GAException {
+    public SearchReferencesResponse searchReferences(SearchReferencesRequest srr) throws AvroRemoteException {
 
         SearchReferencesResponse response = null;
 
