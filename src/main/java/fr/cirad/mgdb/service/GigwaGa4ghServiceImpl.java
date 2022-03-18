@@ -3335,7 +3335,7 @@ public class GigwaGa4ghServiceImpl implements GigwaMethods, VariantMethods, Refe
         } catch (InterruptedException e) {
             throw new AvroRemoteException(e);
         }
-        
+
         return SearchReferenceSetsResponse.newBuilder().setReferenceSets(listRef).setNextPageToken(nextPageToken).build();
     }
 
