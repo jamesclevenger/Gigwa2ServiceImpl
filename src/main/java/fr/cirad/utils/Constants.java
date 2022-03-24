@@ -19,7 +19,7 @@ package fr.cirad.utils;
 /**
  * Class to store project constant
  *
- * @author petel
+ * @author petel, sempere
  */
 public class Constants {
 
@@ -60,4 +60,7 @@ public class Constants {
     public static final String ACCESS = "access";
 
     public static final String ANN_HEADERS = "annotationHeaders";
+    
+    
+    static final public String MESSAGE_TEMP_RECORDS_NOT_FOUND = "Unable to find temporary records: please SEARCH again!";
 }
