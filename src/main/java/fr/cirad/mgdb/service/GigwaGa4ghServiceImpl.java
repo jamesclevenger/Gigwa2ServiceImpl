@@ -2237,7 +2237,6 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
         int pageSize;
         int pageToken = 0;
         String nextPageToken;
-        String module;
 
         int size = listModules.size();
         // if page size is not specified, return all results
