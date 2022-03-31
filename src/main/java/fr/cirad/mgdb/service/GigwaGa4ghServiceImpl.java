@@ -2262,40 +2262,43 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
         }
 
         List<ReferenceSet> listRef = Collections.synchronizedList(new ArrayList<>());
-        List<Collection<String>> splitModuleCollections = Helper.evenlySplitCollection(start != 0 || end != listModules.size() ? listModules.subList(start, end) : listModules, Runtime.getRuntime().availableProcessors() * 2);
-        ExecutorService executor = Executors.newFixedThreadPool(splitModuleCollections.size());
-        for (int i=0; i<splitModuleCollections.size(); i++) {
-            Collection<String> modules = splitModuleCollections.get(i);
-            Thread t = new Thread() {
-                public void run() {
-                    // add a Reference Set for each existing module
-                    for (String module : modules) {
-                        MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
-                        String taxon = MongoTemplateManager.getTaxonName(module);
-                        String species = MongoTemplateManager.getSpecies(module);
-                        String taxoDesc = (species != null ? "Species: " + species : "") + (taxon != null && !taxon.equals(species) ? (species != null ? " ; " : "") + "Taxon: " + taxon : "");
-                        ReferenceSet referenceSet = ReferenceSet.newBuilder()
-                            .setId(module)
-                            .setName(module)
-                            .setMd5checksum("")    /* not supported at the time */
-                            .setSourceAccessions(list)
-                            .setNcbiTaxonId(MongoTemplateManager.getTaxonId(module))
-                            .setDescription(    (taxoDesc.isEmpty() ? "" : (taxoDesc + " ; "))
-                                                + mongoTemplate.getCollection(mongoTemplate.getCollectionName(GenotypingProject.class)).distinct(GenotypingProject.FIELDNAME_SEQUENCES, String.class).into(new ArrayList<>()).size() + " references ; "
-                                                + mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).estimatedDocumentCount() + " markers")
-                            .build();
-                        listRef.add(referenceSet);
-                    }
-                }
-            };
-            executor.execute(t);
-        }
-        executor.shutdown();
-        try {
-            executor.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
-        } catch (InterruptedException e) {
-            throw new AvroRemoteException(e);
-        }
+        List<String> modulesToReturn = start != 0 || end != listModules.size() ? listModules.subList(start, end) : listModules;
+	    if (!modulesToReturn.isEmpty()) {
+	        List<Collection<String>> splitModuleCollections = Helper.evenlySplitCollection(modulesToReturn, Runtime.getRuntime().availableProcessors() * 2);
+	        ExecutorService executor = Executors.newFixedThreadPool(splitModuleCollections.size());
+	        for (int i=0; i<splitModuleCollections.size(); i++) {
+	            Collection<String> modules = splitModuleCollections.get(i);
+	            Thread t = new Thread() {
+	                public void run() {
+	                    // add a Reference Set for each existing module
+	                    for (String module : modules) {
+	                        MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
+	                        String taxon = MongoTemplateManager.getTaxonName(module);
+	                        String species = MongoTemplateManager.getSpecies(module);
+	                        String taxoDesc = (species != null ? "Species: " + species : "") + (taxon != null && !taxon.equals(species) ? (species != null ? " ; " : "") + "Taxon: " + taxon : "");
+	                        ReferenceSet referenceSet = ReferenceSet.newBuilder()
+	                            .setId(module)
+	                            .setName(module)
+	                            .setMd5checksum("")    /* not supported at the time */
+	                            .setSourceAccessions(list)
+	                            .setNcbiTaxonId(MongoTemplateManager.getTaxonId(module))
+	                            .setDescription(    (taxoDesc.isEmpty() ? "" : (taxoDesc + " ; "))
+	                                                + mongoTemplate.getCollection(mongoTemplate.getCollectionName(GenotypingProject.class)).distinct(GenotypingProject.FIELDNAME_SEQUENCES, String.class).into(new ArrayList<>()).size() + " references ; "
+	                                                + mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).estimatedDocumentCount() + " markers")
+	                            .build();
+	                        listRef.add(referenceSet);
+	                    }
+	                }
+	            };
+	            executor.execute(t);
+	        }
+	        executor.shutdown();
+	        try {
+	            executor.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
+	        } catch (InterruptedException e) {
+	            throw new AvroRemoteException(e);
+	        }
+	    }
 
         return SearchReferenceSetsResponse.newBuilder().setReferenceSets(listRef).setNextPageToken(nextPageToken).build();
     }
