@@ -2213,9 +2213,8 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
                                 Object value = ind.getAdditionalInfo().get(key);
                                 if (value instanceof String) {
                                     int spaces = ((String) value).length() - ((String) value).replaceAll(" ", "").length();
-                                    if (spaces < 3) {
+                                    if (spaces <= 5)
                                         addInfoMap.put(key, value.toString());
-                                    }
                                 }
                             }
                             csb.setInfo(addInfoMap.keySet().stream().collect(Collectors.toMap(k -> k, k -> (List<String>) Arrays.asList(addInfoMap.get(k).toString()), (u,v) -> { throw new IllegalStateException(String.format("Duplicate key %s", u)); }, LinkedHashMap::new)));
