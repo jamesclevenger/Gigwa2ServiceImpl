@@ -150,6 +150,8 @@ import htsjdk.variant.vcf.VCFFormatHeaderLine;
 import htsjdk.variant.vcf.VCFHeaderLine;
 import htsjdk.variant.vcf.VCFInfoHeaderLine;
 import htsjdk.variant.vcf.VCFSimpleHeaderLine;
+import java.util.logging.Level;
+import javax.ejb.ObjectNotFoundException;
 
 /**
  *
@@ -321,7 +323,12 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
 
     @Override
     public List<String> listIndividualsInAlphaNumericOrder(String sModule, int project) {
-        List<String> indArray = new ArrayList(MgdbDao.getProjectIndividuals(sModule, project));
+        List<String> indArray = null;
+        try {
+            indArray = new ArrayList(MgdbDao.getProjectIndividuals(sModule, project));
+        } catch (ObjectNotFoundException ex) {
+            java.util.logging.Logger.getLogger(GigwaGa4ghServiceImpl.class.getName()).log(Level.SEVERE, null, ex);
+        }
         Collections.sort(indArray, new AlphaNumericComparator());
         return indArray;
     }
@@ -1998,9 +2005,13 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
             List<String> listVariantSetId = new ArrayList<>();
             listVariantSetId.add(createId(module, info[1]));
 
-            // check if the callSet is in the list
-            if (MgdbDao.getProjectIndividuals(module, projId).contains(name))
-                callSet = CallSet.newBuilder().setId(id).setName(name).setVariantSetIds(listVariantSetId).setSampleId(null).build();
+            try {
+                // check if the callSet is in the list
+                if (MgdbDao.getProjectIndividuals(module, projId).contains(name))
+                    callSet = CallSet.newBuilder().setId(id).setName(name).setVariantSetIds(listVariantSetId).setSampleId(null).build();
+            } catch (ObjectNotFoundException ex) {
+                java.util.logging.Logger.getLogger(GigwaGa4ghServiceImpl.class.getName()).log(Level.SEVERE, null, ex);
+            }
         }
         return callSet;
     }
@@ -2472,11 +2483,13 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
             if (cursor != null && cursor.hasNext()) {
                 // we need to get callSet name and position in the callSet list to get corresponding genotype
                 // if we don't want to retrieve genotype, just send an empty individuals list?
-                Collection<GenotypingSample> samples;
+                Collection<GenotypingSample> samples = new ArrayList<>();
                 if (getGT) {
+                    try {
                         samples = MgdbDao.getSamplesForProject(module, projId, gsvr.getCallSetIds().stream().map(csi -> csi.substring(1 + csi.lastIndexOf(GigwaGa4ghServiceImpl.ID_SEPARATOR))).collect(Collectors.toList()));
-                } else {
-                        samples = new ArrayList<>();
+                    } catch (ObjectNotFoundException ex) {
+                        java.util.logging.Logger.getLogger(GigwaGa4ghServiceImpl.class.getName()).log(Level.SEVERE, null, ex);
+                    }
                 }
 
                 List<Variant> listVar = getVariantListFromDBCursor(module, Integer.parseInt(info[1]), cursor, samples);
