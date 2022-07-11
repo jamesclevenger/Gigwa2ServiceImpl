@@ -15,6 +15,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import javax.ejb.ObjectNotFoundException;
+
 import org.apache.log4j.Logger;
 import org.bson.Document;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -675,7 +677,7 @@ public class VisualizationService {
     private static final String FST_RES_ALLELES = "as";
     private static final String FST_RES_POPULATIONS = "ps";
 
-    private List<BasicDBObject> buildFstQuery(GigwaDensityRequest gdr, boolean useTempColl) {
+    private List<BasicDBObject> buildFstQuery(GigwaDensityRequest gdr, boolean useTempColl) throws ObjectNotFoundException {
     	String info[] = GigwaSearchVariantsRequest.getInfoFromId(gdr.getVariantSetId(), 2);
         String sModule = info[0];
         int projId = Integer.parseInt(info[1]);
@@ -802,7 +804,7 @@ public class VisualizationService {
     private static final String TJD_RES_SEGREGATINGSITES = "sg";
     private static final String TJD_RES_TAJIMAD = "tjd";
 
-    private List<BasicDBObject> buildTajimaDQuery(GigwaDensityRequest gdr, boolean useTempColl) {
+    private List<BasicDBObject> buildTajimaDQuery(GigwaDensityRequest gdr, boolean useTempColl) throws ObjectNotFoundException {
     	String info[] = GigwaSearchVariantsRequest.getInfoFromId(gdr.getVariantSetId(), 2);
         String sModule = info[0];
         int projId = Integer.parseInt(info[1]);
