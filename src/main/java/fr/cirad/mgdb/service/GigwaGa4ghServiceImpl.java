@@ -1711,12 +1711,12 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
     }
 
     /**
-     * create ID from a list of param
+     * create composite ID from a list of params
      *
-     * @param param
+     * @param params
      * @return String the id
      */
-    public String createId(Comparable... params) {
+    static public String createId(Comparable... params) {
         String result = "";
 
         for (Comparable val : params) {
