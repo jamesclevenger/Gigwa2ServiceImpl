@@ -91,6 +91,8 @@ public class AutoUnzipFilter implements javax.servlet.Filter {
 		{
 			if (extension.startsWith("."))
 				extension = extension.substring(1);
+			
+			((HttpServletResponse) response).addHeader("Access-Control-Allow-Origin", hsRequest.getHeader("Origin"));
 
 			byte[] buffer = new byte[1024];
 	    	while (ze!=null)
