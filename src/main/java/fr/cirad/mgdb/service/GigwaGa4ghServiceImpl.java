@@ -1511,43 +1511,48 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
     {
 //        long before = System.currentTimeMillis();
         LinkedHashMap<Comparable, Variant> varMap = new LinkedHashMap<>();
-        LinkedHashMap<Comparable, String> typeMap = new LinkedHashMap<>();
 
         // parse the cursor to create all GAVariant
-            while (cursor.hasNext()) {
+        while (cursor.hasNext()) {
+            Document obj = cursor.next();
+            // save the Id of each variant in the cursor
+            String id = (String) obj.get("_id");
+            List<String> knownAlleles = ((List<String>) obj.get(VariantData.FIELDNAME_KNOWN_ALLELES));
 
-                Document obj = cursor.next();
-                // save the Id of each variant in the cursor
-                String id = (String) obj.get("_id");
-                List<String> knownAlleles = ((List<String>) obj.get(VariantData.FIELDNAME_KNOWN_ALLELES));
+            Variant.Builder variantBuilder = Variant.newBuilder()
+                    .setId(createId(module, projId, id.toString()))
+                    .setVariantSetId(createId(module, projId));
 
-                typeMap.put(id, (String) obj.get(VariantData.FIELDNAME_TYPE));
-                Variant.Builder variantBuilder = Variant.newBuilder()
-                        .setId(createId(module, projId, id.toString()))
-                        .setVariantSetId(createId(module, projId));
+            Document rp = ((Document) obj.get(VariantData.FIELDNAME_REFERENCE_POSITION));
+            if (rp == null)
+                variantBuilder.setReferenceName("").setStart(-1).setEnd(-1);
+            else {
+                String chr = (String) rp.get(ReferencePosition.FIELDNAME_SEQUENCE);
+                    variantBuilder.setReferenceName(chr != null ? chr : "");
 
-                Document rp = ((Document) obj.get(VariantData.FIELDNAME_REFERENCE_POSITION));
-                if (rp == null)
-                    variantBuilder.setReferenceName("").setStart(-1).setEnd(-1);
-                else {
-                    String chr = (String) rp.get(ReferencePosition.FIELDNAME_SEQUENCE);
-                        variantBuilder.setReferenceName(chr != null ? chr : "");
+                    Long start = (Long) rp.get(ReferencePosition.FIELDNAME_START_SITE);
+                variantBuilder.setStart(start != null ? start : -1);
 
-                        Long start = (Long) rp.get(ReferencePosition.FIELDNAME_START_SITE);
-                    variantBuilder.setStart(start != null ? start : -1);
-
-                        Long end = (Long) rp.get(ReferencePosition.FIELDNAME_END_SITE);
-                        if (end == null && start != null)
-                            end = start;
-                    variantBuilder.setEnd(end != null ? end : -1);
-                }
-                if (knownAlleles.size() == 0)
-                    throw new AvroRemoteException("Variant " + id.toString() + " has no known alleles!");
-
-                variantBuilder.setReferenceBases(knownAlleles.get(0)); // reference is the first one in VCF files
-                    variantBuilder.setAlternateBases(knownAlleles.subList(1, knownAlleles.size()));
-                    varMap.put(id, variantBuilder.build());
+                    Long end = (Long) rp.get(ReferencePosition.FIELDNAME_END_SITE);
+                    if (end == null && start != null)
+                        end = start;
+                variantBuilder.setEnd(end != null ? end : -1);
             }
+            if (knownAlleles.size() == 0)
+                throw new AvroRemoteException("Variant " + id.toString() + " has no known alleles!");
+
+            variantBuilder.setReferenceBases(knownAlleles.get(0)); // reference is the first one in VCF files
+            variantBuilder.setAlternateBases(knownAlleles.subList(1, knownAlleles.size()));
+            
+            // add the annotation map to the variant
+            Map<String, List<String>> annotations = new HashMap<>();
+            List<String> infoType = new ArrayList<>();
+            infoType.add((String) obj.get(VariantData.FIELDNAME_TYPE));
+            annotations.put("type", infoType);
+            variantBuilder.setInfo(annotations);
+            
+            varMap.put(id, variantBuilder.build());
+        }
 
         // get the VariantRunData containing annotations
         ArrayList<BasicDBObject> pipeline = new ArrayList<>();
@@ -1587,16 +1592,9 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
             variantsForWhichAnnotationWasRetrieved.add(varId);
             TreeSet<Call> calls = new TreeSet(new AlphaNumericComparator<Call>());    // for automatic sorting
 
-            Map<String, List<String>> annotations = new HashMap<>();
-            List<String> infoType = new ArrayList<>();
-            infoType.add(typeMap.get(varId));
-            annotations.put("type", infoType);
-
             // for each annotation field
             for (String key : variantObj.keySet()) {
-
                 switch (key) {
-
                     // this goes in Call  || should not be called if sp field is not present
                     case VariantRunData.FIELDNAME_SAMPLEGENOTYPES:
                         // get genotype map
@@ -1673,9 +1671,7 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
                         break;
 
                     case VariantRunData.SECTION_ADDITIONAL_INFO:
-
                         Map<String, Object> additionalInfos = (Map<String, Object>) variantObj.get(key);
-
                         for (String subKey : additionalInfos.keySet()) {
 
                             if (subKey.equals("") || subKey.equals(VcfImport.ANNOTATION_FIELDNAME_ANN) || subKey.equals(VcfImport.ANNOTATION_FIELDNAME_CSQ)) {
@@ -1686,10 +1682,10 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
                                 // ANN (vcf 4.2) is stored in variantAnnotation
                             } else if (subKey.equals(VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE)) {
                                 List<String> listGene = (List<String>) additionalInfos.get(subKey);
-                                annotations.put(subKey, listGene);
+                                var.getInfo().put(subKey, listGene);
                             } else if (subKey.equals(VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME)) {
                                 List<String> listEffect = (List<String>) additionalInfos.get(subKey);
-                                annotations.put(subKey, listEffect);
+                                var.getInfo().put(subKey, listEffect);
                             } else {
 
                             }
@@ -1702,8 +1698,6 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
             }
             // add the call list
             var.setCalls(new ArrayList<Call>(calls));
-            // add the annotation map to the variant
-            var.setInfo(annotations);
         }
 
 //        LOG.debug("getVariantListFromDBCursor took " + (System.currentTimeMillis() - before) / 1000f + "s for " + varMap.size() + " variants and " + samples.size() + " samples");
