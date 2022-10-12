@@ -130,6 +130,7 @@ import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
 import fr.cirad.mgdb.model.mongo.subtypes.SampleGenotype;
 import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.model.GigwaDensityRequest;
+import fr.cirad.model.GigwaSearchCallSetsRequest;
 import fr.cirad.model.GigwaSearchReferencesRequest;
 import fr.cirad.model.GigwaSearchVariantsExportRequest;
 import fr.cirad.model.GigwaSearchVariantsRequest;
@@ -1096,6 +1097,7 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
             return;
         }
 
+        Authentication auth = tokenManager.getAuthenticationFromToken(tokenManager.readToken(gsver.getRequest()));
         String mainVarCollName = mongoTemplate.getCollectionName(VariantData.class), usedVarCollName = nTempVarCount == 0 ? mainVarCollName : tmpVarColl.getNamespace().getCollectionName();
         MongoCollection<Document> usedVarColl = mongoTemplate.getCollection(usedVarCollName);
         Document variantQuery = nTempVarCount == 0 && !variantQueryDBList.isEmpty() ? new Document("$and", variantQueryDBList) : new Document();
@@ -1103,7 +1105,6 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
         {    // make sure the matrix is not too big
             int nMaxBillionGenotypesInvolved = 1;    // default
             try {
-                Authentication auth = tokenManager.getAuthenticationFromToken(tokenManager.readToken(gsver.getRequest()));
                 nMaxBillionGenotypesInvolved = Integer.parseInt(appConfig.get("maxExportableBillionGenotypes_" + (auth == null ? "anonymousUser" : auth.getName())));
             }
             catch (Exception ignored1) {
@@ -1136,6 +1137,8 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
 
         try
         {
+        	String username = AbstractTokenManager.getUserNameFromAuthentication(tokenManager.getAuthenticationFromToken(token));
+
             AbstractIndividualOrientedExportHandler individualOrientedExportHandler = AbstractIndividualOrientedExportHandler.getIndividualOrientedExportHandlers().get(gsver.getExportFormat());
             AbstractMarkerOrientedExportHandler markerOrientedExportHandler = AbstractMarkerOrientedExportHandler.getMarkerOrientedExportHandlers().get(gsver.getExportFormat());
 
@@ -1143,7 +1146,7 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
 
             LOG.info((gsver.isKeepExportOnServer() ? "On-server" : "Direct-download") + " export requested: " + processId);
             if (gsver.isKeepExportOnServer()) {
-                String relativeOutputFolder = FRONTEND_URL + File.separator + TMP_OUTPUT_FOLDER + File.separator + IExportHandler.getLoggedUserName() + File.separator + Helper.convertToMD5(processId) + File.separator;
+                String relativeOutputFolder = FRONTEND_URL + File.separator + TMP_OUTPUT_FOLDER + File.separator + username + File.separator + Helper.convertToMD5(processId) + File.separator;
                 File outputLocation = new File(gsver.getRequest().getSession().getServletContext().getRealPath(File.separator + relativeOutputFolder));
                 if (!outputLocation.exists() && !outputLocation.mkdirs()) {
                     throw new Exception("Unable to create folder: " + outputLocation);
@@ -1186,7 +1189,7 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
                                 for (String step : individualOrientedExportHandler.getStepList())
                                     progress.addStep(step);
                                 progress.moveToNextStep();
-                                individualOrientedExportHandler.exportData(finalOS, sModule, exportFiles, true, progress, usedVarCollName, variantQuery, count, null, gsver.getMetadataFields(), readyToExportFiles);
+                                individualOrientedExportHandler.exportData(finalOS, sModule, AbstractTokenManager.getUserNameFromAuthentication(auth), exportFiles, true, progress, usedVarCollName, variantQuery, count, null, gsver.getMetadataFields(), readyToExportFiles);
                                 if (!progress.isAborted()) {
                                     LOG.info("exportVariants (" + gsver.getExportFormat() + ") took " + (System.currentTimeMillis() - before) / 1000d + "s to process " + count + " variants and " + individualsToExport.size() + " individuals");
                                     progress.markAsComplete();
@@ -1232,7 +1235,7 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
                 Thread exportThread = new IExportHandler.SessionAttributeAwareExportThread(gsver.getRequest().getSession()) {
                     public void run() {
                         try {
-                            markerOrientedExportHandler.exportData(finalOS, sModule, selectedIndividualList1, selectedIndividualList2, progress, nTempVarCount == 0 ? null : usedVarColl.getNamespace().getCollectionName(), variantQuery, count, null, gsver.getAnnotationFieldThresholds(), gsver.getAnnotationFieldThresholds2(), samplesToExport, gsver.getMetadataFields(), readyToExportFiles);
+                            markerOrientedExportHandler.exportData(finalOS, sModule, AbstractTokenManager.getUserNameFromAuthentication(auth), selectedIndividualList1, selectedIndividualList2, progress, nTempVarCount == 0 ? null : usedVarColl.getNamespace().getCollectionName(), variantQuery, count, null, gsver.getAnnotationFieldThresholds(), gsver.getAnnotationFieldThresholds2(), samplesToExport, gsver.getMetadataFields(), readyToExportFiles);
                             if (!progress.isAborted() && progress.getError() == null) {
                                 LOG.info("exportVariants (" + gsver.getExportFormat() + ") took " + (System.currentTimeMillis() - before) / 1000d + "s to process " + count + " variants and " + individualsToExport.size() + " individuals");
                                 progress.markAsComplete();
@@ -2175,6 +2178,9 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
         if (info == null)
             return null;
 
+        GigwaSearchCallSetsRequest gscsr = (GigwaSearchCallSetsRequest) scsr;
+        Authentication auth = tokenManager.getAuthenticationFromToken(tokenManager.readToken(gscsr.getRequest()));
+
         CallSet callSet;
         int start;
         int end;
@@ -2183,7 +2189,7 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
         String nextPageToken;
 
         String module = info[0];
-        LinkedHashMap<String, Individual> indMap = mgdbDao.loadIndividualsWithAllMetadata(module, IExportHandler.getLoggedUserName(), Arrays.asList(Integer.parseInt(info[1])), null);
+        LinkedHashMap<String, Individual> indMap = mgdbDao.loadIndividualsWithAllMetadata(module, AbstractTokenManager.getUserNameFromAuthentication(auth), Arrays.asList(Integer.parseInt(info[1])), null);
 
         List<CallSet> listCallSet = new ArrayList<>();
         int size = indMap.size();
