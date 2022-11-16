@@ -405,10 +405,13 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
             if ((gsvr.getStart() != null && gsvr.getStart() != -1) || (gsvr.getEnd() != null && gsvr.getEnd() != -1)) {
                 BasicDBObject posCrit = new BasicDBObject();
                 if (gsvr.getStart() != null && gsvr.getStart() != -1)
-                    posCrit.put("$gte", gsvr.getStart());
+                    posCrit.put("$or", Arrays.asList(
+                    	new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$gte", gsvr.getStart())), 
+                		new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_END_SITE, new BasicDBObject("$gte", gsvr.getStart()))
+                	));
                 if (gsvr.getEnd() != null && gsvr.getEnd() != -1)
-                    posCrit.put("$lte", gsvr.getEnd());
-                variantFeatureFilterList.add(new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, posCrit));
+                    posCrit.put(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, new BasicDBObject("$lte", gsvr.getEnd()));
+                variantFeatureFilterList.add(posCrit);
             }
 
             /* Step to match selected number of alleles */
