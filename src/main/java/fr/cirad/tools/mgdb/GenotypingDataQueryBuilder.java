@@ -220,7 +220,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
         genotypePatternToQueryMap.put(GENOTYPE_CODE_LABEL_WITHOUT_ABNORMAL_HETEROZYGOSITY, GenotypingDataQueryBuilder.AGGREGATION_QUERY_WITHOUT_ABNORMAL_HETEROZYGOSITY);
     }
 
-    public GenotypingDataQueryBuilder(GigwaSearchVariantsRequest gsvr, MongoCollection<Document> tempExportColl, BasicDBList variantQueryDBList, boolean fForCounting) throws Exception
+    public GenotypingDataQueryBuilder(GigwaSearchVariantsRequest gsvr, BasicDBList variantQueryDBList, boolean fForCounting) throws Exception
     {
         this.variantQueryDBList = variantQueryDBList;
         Helper.convertIdFiltersToRunFormat(Arrays.asList(this.variantQueryDBList));
