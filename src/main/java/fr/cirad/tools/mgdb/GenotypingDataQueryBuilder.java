@@ -40,7 +40,6 @@ import org.springframework.data.mongodb.core.query.Query;
 //import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
-import com.mongodb.client.MongoCollection;
 
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
@@ -93,8 +92,11 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
     /** The annotation field thresholds. */
     private HashMap<String, Float>[] annotationFieldThresholds = new HashMap[2];
         
-    /** The missing data threshold. */
-    private Float[] missingData = new Float[2];
+    /** The missing data mininmum threshold. */
+    private Float[] minMissingData = new Float[2];
+    
+    /** The missing data maxinmum threshold. */
+    private Float[] maxMissingData = new Float[2];
     
     /** The minmaf. */
     private Float[] minmaf = new Float[2];
@@ -244,9 +246,10 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
         this.operator[0] = genotypePatternToQueryMap.get(gsvr.getGtPattern());
         this.mostSameRatio[0] = gsvr.getMostSameRatio();
         this.annotationFieldThresholds[0] = gsvr.getAnnotationFieldThresholds();
-        this.missingData[0] = gsvr.getMissingData();
-        this.minmaf[0] = gsvr.getMinmaf();
-        this.maxmaf[0] = gsvr.getMaxmaf();
+        this.minMissingData[0] = gsvr.getMinMissingData();
+        this.maxMissingData[0] = gsvr.getMaxMissingData();
+        this.minmaf[0] = gsvr.getMinMaf();
+        this.maxmaf[0] = gsvr.getMaxMaf();
         final AtomicInteger nSampleCount = new AtomicInteger(0);
         this.individualToSampleListMap[0] = MgdbDao.getSamplesByIndividualForProject(sModule, projId, selectedIndividuals[0]);
         this.individualToSampleListMap[0].values().stream().map(spList -> nSampleCount.addAndGet(spList.size()));
@@ -259,9 +262,10 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
             this.operator[1] = genotypePatternToQueryMap.get(gsvr.getGtPattern2());
             this.mostSameRatio[1] = gsvr.getMostSameRatio2();
             this.annotationFieldThresholds[1] = gsvr.getAnnotationFieldThresholds2();
-            this.missingData[1] = gsvr.getMissingData2();
-            this.minmaf[1] = gsvr.getMinmaf2();
-            this.maxmaf[1] = gsvr.getMaxmaf2();
+            this.minMissingData[1] = gsvr.getMinMissingData2();
+            this.maxMissingData[1] = gsvr.getMaxMissingData2();
+            this.minmaf[1] = gsvr.getMinMaf2();
+            this.maxmaf[1] = gsvr.getMaxMaf2();
             this.individualToSampleListMap[1] = MgdbDao.getSamplesByIndividualForProject(sModule, projId, selectedIndividuals[1]);
             this.individualToSampleListMap[1].values().stream().map(spList -> nSampleCount.addAndGet(spList.size()));
             fDiscriminate = gsvr.isDiscriminate();
@@ -468,7 +472,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
             catch (ArithmeticException ae) {    // nMaxNumberOfAllelesForOneVariant must be too large for its factorial to be calculated
                 nNumberOfPossibleGenotypes = Integer.MAX_VALUE;
             }
-            double maxMissingGenotypeCount = selectedIndividuals[g].size() * missingData[g] / 100;
+            double maxMissingGenotypeCount = selectedIndividuals[g].size() * maxMissingData[g] / 100;
             if ("$ne".equals(cleanOperator[g]) && !fNegateMatch[g]) {
                 if (selectedIndividuals[g].size() - maxMissingGenotypeCount > nNumberOfPossibleGenotypes) {
                     initialMatchList.add(new BasicDBObject("_id", null));    // return no results
@@ -488,7 +492,7 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
             }
             
             fMafApplied[g] = maxmaf[g] != null && maxmaf[g].floatValue() < 50F || minmaf[g] != null && minmaf[g].floatValue() > 0.0F;
-            fMissingDataApplied[g] = missingData[g] != null && missingData[g] < 100;
+            fMissingDataApplied[g] = (minMissingData[g] != null && minMissingData[g] > 0) || (maxMissingData[g] != null && maxMissingData[g] < 100);
         }
         
         if (variantQueryDBList.size() > 0 && !fFilteringOnSequence)
@@ -602,8 +606,14 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
                 in.put("d" + g, new BasicDBObject("$filter", filter));
             }
 
-            if (fMissingDataApplied[g])
-                finalMatchList.add(new BasicDBObject("r.m" + g, new BasicDBObject("$lte", selectedIndividuals[g].size() * missingData[g] / 100)));
+            if (fMissingDataApplied[g]) {
+            	BasicDBObject missingDataFilter = new BasicDBObject();
+                if (minMissingData[g] != null && minMissingData[g] > 0)
+                	missingDataFilter.put("$gte", selectedIndividuals[g].size() * minMissingData[g] / 100);
+                if (maxMissingData[g] != null && maxMissingData[g] < 100)
+                	missingDataFilter.put("$lte", selectedIndividuals[g].size() * maxMissingData[g] / 100);
+                finalMatchList.add(new BasicDBObject("r.m" + g, missingDataFilter));
+            }
                 
             if (fZygosityRegex[g] || fExcludeVariantsWithOnlyMissingData || fMissingDataApplied[g] || fMafApplied[g] || fCompareBetweenGenotypes[g] || fIsWithoutAbnormalHeterozygosityQuery[g] || fMostSameSelected || fDiscriminate) {    // we need to calculate extra fields via an additional $let operator
                 // keep previously computed fields
@@ -781,9 +791,9 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
 
         if (fExcludeVariantsWithOnlyMissingData) {  // not all runs are selected: some variants may have no data for the selected samples, we don't want to include them
             ArrayList<BasicDBObject> orList = new ArrayList<BasicDBObject>();
-            if (missingData[0] == 100)
+            if (maxMissingData[0] == 100)
                 orList.add(new BasicDBObject("r.m0", new BasicDBObject("$lt", selectedIndividuals[0].size())));
-            if (filteredGroups.contains(1) && missingData[1] == 100)
+            if (filteredGroups.contains(1) && maxMissingData[1] == 100)
                 orList.add(new BasicDBObject("r.m1", new BasicDBObject("$lt", selectedIndividuals[1].size())));
             if (!orList.isEmpty())
                 finalMatchList.add(new BasicDBObject("$or", orList));
@@ -792,10 +802,10 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
         if (finalMatchList.size() > 0)
              pipeline.add(new BasicDBObject("$match", new BasicDBObject("$and", finalMatchList)));
 
-        /*if (nNextCallCount == 1) {
-            try { System.out.println(new ObjectMapper().writeValueAsString(pipeline)); }
-            catch (Exception ignored) {}
-        }*/
+//        if (nNextCallCount == 1) {
+//            try { System.out.println(new ObjectMapper().writeValueAsString(pipeline)); }
+//            catch (Exception ignored) {}
+//        }
         return pipeline;
     }
 
@@ -903,9 +913,9 @@ public class GenotypingDataQueryBuilder implements Iterator<List<BasicDBObject>>
     static public List<Integer> getGroupsForWhichToFilterOnGenotypingData(GigwaSearchVariantsRequest gsvr, boolean fConsiderFieldThresholds)
     {
         List<Integer> result = new ArrayList<>();
-        if (gsvr.isDiscriminate() || !gsvr.getGtPattern().equals(GENOTYPE_CODE_LABEL_ALL) || (fConsiderFieldThresholds && gsvr.getAnnotationFieldThresholds().size() >= 1) || gsvr.getMissingData() < 100 || gsvr.getMinmaf() > 0 || gsvr.getMaxmaf() < 50)
+        if (gsvr.isDiscriminate() || !gsvr.getGtPattern().equals(GENOTYPE_CODE_LABEL_ALL) || (fConsiderFieldThresholds && gsvr.getAnnotationFieldThresholds().size() >= 1) || gsvr.getMinMissingData() > 0 || gsvr.getMaxMissingData() < 100 || gsvr.getMinMaf() > 0 || gsvr.getMaxMaf() < 50)
             result.add(0);
-        if (gsvr.isDiscriminate() || !gsvr.getGtPattern2().equals(GENOTYPE_CODE_LABEL_ALL) || (fConsiderFieldThresholds && gsvr.getAnnotationFieldThresholds2().size() >= 1) || gsvr.getMissingData2() < 100 || gsvr.getMinmaf2() > 0 || gsvr.getMaxmaf2() < 50)
+        if (gsvr.isDiscriminate() || !gsvr.getGtPattern2().equals(GENOTYPE_CODE_LABEL_ALL) || (fConsiderFieldThresholds && gsvr.getAnnotationFieldThresholds2().size() >= 1) || gsvr.getMinMissingData2() > 0 || gsvr.getMaxMissingData2() < 100 || gsvr.getMinMaf2() > 0 || gsvr.getMaxMaf2() < 50)
             result.add(1);
 
         return result;

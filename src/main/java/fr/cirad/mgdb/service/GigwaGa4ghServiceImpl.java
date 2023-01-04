@@ -524,7 +524,7 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
             if (genotypingProject.getAlleleCounts().size() != 1 || genotypingProject.getAlleleCounts().iterator().next() != 2) {    // Project does not only have bi-allelic data: make sure we can apply MAF filter on selection
                 boolean fExactlyOneNumberOfAllelesSelected = alleleCountList != null && alleleCountList.size() == 1;
                 boolean fBiAllelicSelected = fExactlyOneNumberOfAllelesSelected && "2".equals(alleleCountList.get(0));
-                boolean fMafRequested = (gsvr.getMaxmaf() != null && gsvr.getMaxmaf() < 50) || (gsvr.getMinmaf() != null && gsvr.getMinmaf() > 0);
+                boolean fMafRequested = (gsvr.getMaxMaf() != null && gsvr.getMaxMaf() < 50) || (gsvr.getMinMaf() != null && gsvr.getMinMaf() > 0);
                 if (fMafRequested && !fBiAllelicSelected) {
                     progress.setError("MAF is only supported on biallelic data!");
                     return 0l;
@@ -1370,17 +1370,19 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
                         + gsvr.getAnnotationFieldThresholds() + ":"
                         + gsvr.getGtPattern() + ":"
                         + gsvr.getMostSameRatio() + ":"
-                        + gsvr.getMissingData() + ":"
-                        + gsvr.getMinmaf() + ":"
-                        + gsvr.getMaxmaf() + ":"
+                        + gsvr.getMinMissingData() + ":"
+                        + gsvr.getMaxMissingData() + ":"
+                        + gsvr.getMinMaf() + ":"
+                        + gsvr.getMaxMaf() + ":"
 
                         + gsvr.getCallSetIds2() + ":"
                         + gsvr.getAnnotationFieldThresholds2() + ":"
                         + gsvr.getGtPattern2() + ":"
                         + gsvr.getMostSameRatio2() + ":"
-                        + gsvr.getMissingData2() + ":"
-                        + gsvr.getMinmaf2() + ":"
-                        + gsvr.getMaxmaf2() + ":"
+                        + gsvr.getMinMissingData2() + ":"
+                        + gsvr.getMaxMissingData2() + ":"
+                        + gsvr.getMinMaf2() + ":"
+                        + gsvr.getMaxMaf2() + ":"
 
                         + gsvr.isDiscriminate() + ":"
                         + gsvr.getVariantEffect();
