@@ -16,6 +16,8 @@
  *******************************************************************************/
 package fr.cirad.mgdb.service;
 
+import static java.lang.Boolean.parseBoolean;
+
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -96,6 +98,7 @@ import org.ga4gh.models.VariantAnnotation;
 import org.ga4gh.models.VariantSet;
 import org.ga4gh.models.VariantSetMetadata;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -210,6 +213,9 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
     private HashSet<String> hostsNotSupportingMergeOperator = new HashSet<>();
 
     @Autowired private MgdbDao mgdbDao;
+    
+    @Value("${DOCUMENT_DB_COMPAT_MODE}")
+    private String documentDbCompatMode;
 
     public static final Integer QUERY_IDS_CHUNK_SIZE = 100000;
 
@@ -2440,7 +2446,8 @@ public class GigwaGa4ghServiceImpl implements IGigwaService, VariantMethods, Ref
                         MongoCollection<Document> varCollForBuildingRows = tempVarColl.countDocuments() == 0 ? mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)) : tempVarColl;
                         iterable = varCollForBuildingRows.find(!variantQueryDBList.isEmpty() ? new BasicDBObject("$and", variantQueryDBList) : new BasicDBObject());
                     }
-                    //iterable.collation(IExportHandler.collationObj);
+                    if(!parseBoolean(documentDbCompatMode))
+                        iterable.collation(IExportHandler.collationObj);
 
                     if (gsvr.getSortBy() != null && gsvr.getSortBy().length() > 0)
                         iterable.sort(new BasicDBObject(gsvr.getSortBy(), Integer.valueOf("DESC".equalsIgnoreCase(gsvr.getSortDir()) ? -1 : 1)));
